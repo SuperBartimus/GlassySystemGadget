@@ -1,0 +1,43 @@
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Editor noise
+.idea/
+.vscode/
+*.swp
+
+# OS noise
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Build output
+build/
+dist/
+out/
+bin/
+obj/
+
+# Agent tooling noise
+.remember/
+
+# Local AI-tool marker (checkpoint step)
+.ai-agent-log.md
+
+# Local working notes - not part of the public project
+AGENTS.md
+CLAUDE.md
+RULES.md
+_handoffs/
+docs/superpowers/

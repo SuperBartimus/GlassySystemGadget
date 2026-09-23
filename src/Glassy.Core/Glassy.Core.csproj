@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>Glassy.Core</RootNamespace>
+    <!-- Needed for System.Drawing.Image and System.Windows.Forms.Clipboard/DataObject/IDataObject, so the clipboard
+         classifier and store (real logic) live here and are unit-testable; only the WM_CLIPBOARDUPDATE window-message
+         hookup and Direct2D drawing stay in Glassy.App. -->
+    <UseWindowsForms>true</UseWindowsForms>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Glassy.Tests" />
+  </ItemGroup>
+</Project>
