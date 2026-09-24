@@ -68,6 +68,14 @@ public static class ClipboardClassifier
 
         if (data.GetDataPresent(DataFormats.Bitmap) && data.GetData(DataFormats.Bitmap) is Image img)
             return ClassifyImage(img, maxImageBytes);
+        // CF_BITMAP (DataFormats.Bitmap) is a live GDI handle - it can be present in the format list yet fail to
+        // produce an Image, because a bitmap handle can't cross an RDP session boundary (only pixel bytes can).
+        // CF_DIB (DataFormats.Dib) is the same image as a plain byte blob, which does survive; decode it by
+        // prepending the 14-byte BITMAPFILEHEADER a .bmp file needs but CF_DIB omits. Confirmed live: an image
+        // copied on one machine and RDP'd to another showed up in the clipboard formats list but was never
+        // classified until this fallback was added (2026-09-24).
+        if (data.GetDataPresent(DataFormats.Dib) && TryReadBytes(data, DataFormats.Dib, out var dibBytes) && DecodeDib(dibBytes) is Image dibImg)
+            return ClassifyImage(dibImg, maxImageBytes);
 
         string plain = PlainTextOf(data);
         if (data.GetDataPresent(DataFormats.Html) && data.GetData(DataFormats.Html) is string html && html.Trim().Length > 0)
@@ -140,6 +148,32 @@ public static class ClipboardClassifier
     }
 
     static byte[] Encode(Image img) { using var ms = new MemoryStream(); img.Save(ms, ImageFormat.Png); return ms.ToArray(); }
+
+    /// <summary>CF_DIB is a BITMAPINFOHEADER (or newer) plus an optional colour table/BI_BITFIELDS masks plus pixel
+    /// data - exactly a .bmp file's contents minus its 14-byte BITMAPFILEHEADER. Reconstructing that header and
+    /// handing the result to GDI+'s normal BMP decoder is simpler and safer than hand-parsing pixel data.</summary>
+    static Image DecodeDib(byte[] dib)
+    {
+        if (dib == null || dib.Length < 40) return null;
+        try
+        {
+            int headerSize = BitConverter.ToInt32(dib, 0);
+            short bitCount = BitConverter.ToInt16(dib, 14);
+            int compression = BitConverter.ToInt32(dib, 16);
+            int clrUsed = headerSize >= 40 ? BitConverter.ToInt32(dib, 32) : 0;
+            int paletteEntries = bitCount <= 8 ? (clrUsed != 0 ? clrUsed : 1 << bitCount) : 0;
+            int maskBytes = compression == 3 ? 12 : 0;   // BI_BITFIELDS: three DWORD colour masks before the pixels
+            int offBits = 14 + headerSize + maskBytes + paletteEntries * 4;
+
+            var bmp = new byte[14 + dib.Length];
+            bmp[0] = (byte)'B'; bmp[1] = (byte)'M';
+            BitConverter.GetBytes(bmp.Length).CopyTo(bmp, 2);
+            BitConverter.GetBytes(offBits).CopyTo(bmp, 10);
+            Buffer.BlockCopy(dib, 0, bmp, 14, dib.Length);
+            return Image.FromStream(new MemoryStream(bmp));
+        }
+        catch (ArgumentException) { return null; }   // malformed/unsupported DIB variant; treat as "no image" rather than crash
+    }
 
     static bool TryReadBytes(IDataObject data, string format, out byte[] bytes)
     {

@@ -40,11 +40,23 @@ public sealed class ClipboardWatcher : IDisposable
         {
             var data = System.Windows.Forms.Clipboard.GetDataObject();
             var candidate = ClipboardClassifier.Classify(data, cfg.ClipMaxImageBytes);
-            if (candidate == null) return false;
+            if (candidate == null)
+            {
+                // Diagnostic for the RDP cross-device report: if WM_CLIPBOARDUPDATE never reaches this method at
+                // all, there will be no log line whatsoever for the missed copy - proving the notification itself
+                // never arrived, as opposed to arriving with formats GSG doesn't recognize (listed here if so).
+                string formats = data != null ? string.Join(",", data.GetFormats()) : "(no data object)";
+                AppLog.Write("clipboard update seen but not classified; formats: " + formats);
+                return false;
+            }
             if (IsRecentOwnWrite(candidate.Item.DedupKey)) return false;
             return engine.Clipboard.Add(candidate, cfg.ClipMaxItems);
         }
-        catch (ExternalException) { return false; }   // another app has the clipboard open right now (COMException derives from this too)
+        // Another app (or, per Bart, possibly rdpclip.exe mid-transfer across an RDP session) has the clipboard
+        // open or the data isn't actually available yet; logged rather than silently dropped, since a capture
+        // that never happens and never says why is unfalsifiable - see the RDP cross-device report in the design
+        // spec. COMException derives from ExternalException, so this also covers the more common local case.
+        catch (ExternalException ex) { AppLog.Write("clipboard capture skipped: " + ex.Message); return false; }
     }
 
     bool IsRecentOwnWrite(string dedupKey)
@@ -57,27 +69,41 @@ public sealed class ClipboardWatcher : IDisposable
     public void RestoreToClipboard(ClipItem item, ClipboardStore store)
     {
         var data = new System.Windows.Forms.DataObject();
-        switch (item.Kind)
+        Image img = null; MemoryStream imgStream = null;
+        try
         {
-            case ClipKind.Text:
-                data.SetText(item.PlainText); break;
-            case ClipKind.RichText:
-                data.SetText(item.PlainText);
-                string payload = store.ReadBlobText(item);
-                data.SetData(item.RichFormat == "html" ? System.Windows.Forms.DataFormats.Html : System.Windows.Forms.DataFormats.Rtf, payload);
-                break;
-            case ClipKind.Image:
-                using (var ms = new MemoryStream(store.ReadBlobBytes(item))) using (var img = Image.FromStream(ms)) data.SetImage(img);
-                break;
-            case ClipKind.Files:
-                var sc = new StringCollection(); sc.AddRange(item.Files.ToArray()); data.SetFileDropList(sc);
-                int effect = item.FilesEffect == ClipDropEffect.Cut ? 2 : 1;   // DROPEFFECT_MOVE : DROPEFFECT_COPY
-                data.SetData("Preferred DropEffect", new MemoryStream(BitConverter.GetBytes(effect)));
-                break;
+            switch (item.Kind)
+            {
+                case ClipKind.Text:
+                    data.SetText(item.PlainText); break;
+                case ClipKind.RichText:
+                    data.SetText(item.PlainText);
+                    string payload = store.ReadBlobText(item);
+                    data.SetData(item.RichFormat == "html" ? System.Windows.Forms.DataFormats.Html : System.Windows.Forms.DataFormats.Rtf, payload);
+                    break;
+                case ClipKind.Image:
+                    // Both the stream and the decoded Image must outlive this method: Clipboard.SetDataObject(data,
+                    // true)'s "keep after app exits" flush renders the image into the real clipboard formats at
+                    // flush time, not at SetImage() time. Disposing either one before that flush ran (the previous
+                    // `using (...) using (...) data.SetImage(img);` one-liner did both, immediately) silently
+                    // produced a 0-byte image on the clipboard - invisible here, but Gmail's paste later refused it
+                    // outright ("This file is 0 bytes, so it will not be attached"). Both are disposed in the
+                    // `finally` below, after SetDataObject has actually run.
+                    imgStream = new MemoryStream(store.ReadBlobBytes(item));
+                    img = Image.FromStream(imgStream);
+                    data.SetImage(img);
+                    break;
+                case ClipKind.Files:
+                    var sc = new StringCollection(); sc.AddRange(item.Files.ToArray()); data.SetFileDropList(sc);
+                    int effect = item.FilesEffect == ClipDropEffect.Cut ? 2 : 1;   // DROPEFFECT_MOVE : DROPEFFECT_COPY
+                    data.SetData("Preferred DropEffect", new MemoryStream(BitConverter.GetBytes(effect)));
+                    break;
+            }
+            recentWrites.Add((item.DedupKey, Environment.TickCount64));
+            try { System.Windows.Forms.Clipboard.SetDataObject(data, true); store.SelectedId = item.Id; }
+            catch (ExternalException) { recentWrites.RemoveAll(w => w.key == item.DedupKey); }   // clipboard busy; leave it as it was rather than half-write
         }
-        recentWrites.Add((item.DedupKey, Environment.TickCount64));
-        try { System.Windows.Forms.Clipboard.SetDataObject(data, true); store.SelectedId = item.Id; }
-        catch (ExternalException) { recentWrites.RemoveAll(w => w.key == item.DedupKey); }   // clipboard busy; leave it as it was rather than half-write
+        finally { img?.Dispose(); imgStream?.Dispose(); }
     }
 
     /// <summary>Opens the item's content in whatever the OS has associated with its type. Returns false if there was nothing to open (a Files item whose file no longer exists).</summary>

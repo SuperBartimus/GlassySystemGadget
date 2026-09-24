@@ -292,6 +292,47 @@ public class LiveClipboardRoundTripTest
         Assert.Null(failure);
         Assert.Equal("glassy-clipboard-test-4f2b", preview);
     }
+
+    /// <summary>Reproduces the RDP cross-device bug (2026-09-24): CF_BITMAP (DataFormats.Bitmap) can be listed as
+    /// present yet fail to produce an Image, because a live GDI handle can't cross an RDP session boundary - only
+    /// CF_DIB's raw bytes can. Uses a real Windows-generated DIB (round-tripped through the actual OS clipboard,
+    /// not hand-built bytes) with the Bitmap format deliberately stripped out, so this exercises the same decode
+    /// path a real RDP-redirected image would hit.</summary>
+    [Fact]
+    public void An_image_reachable_only_via_raw_DIB_bytes_like_over_RDP_still_classifies()
+    {
+        Exception failure = null; Glassy.Core.ClipItem item = null;
+        var t = new Thread(() =>
+        {
+            System.Windows.Forms.IDataObject saved = null;
+            try
+            {
+                try { saved = System.Windows.Forms.Clipboard.GetDataObject(); } catch (System.Runtime.InteropServices.ExternalException) { }
+
+                using var bmp = new System.Drawing.Bitmap(12, 8);
+                using (var g = System.Drawing.Graphics.FromImage(bmp)) g.Clear(System.Drawing.Color.FromArgb(255, 30, 200, 90));
+                System.Windows.Forms.Clipboard.SetImage(bmp);
+
+                var real = System.Windows.Forms.Clipboard.GetDataObject();
+                var dibOnly = new System.Windows.Forms.DataObject();
+                dibOnly.SetData(System.Windows.Forms.DataFormats.Dib, real.GetData(System.Windows.Forms.DataFormats.Dib));
+
+                var candidate = ClipboardClassifier.Classify(dibOnly, 5_000_000);
+                item = candidate?.Item;
+            }
+            catch (Exception ex) { failure = ex; }
+            finally
+            {
+                try { if (saved != null) System.Windows.Forms.Clipboard.SetDataObject(saved, true); else System.Windows.Forms.Clipboard.Clear(); }
+                catch (System.Runtime.InteropServices.ExternalException) { }
+            }
+        });
+        t.SetApartmentState(ApartmentState.STA); t.Start(); t.Join(5000);
+        Assert.Null(failure);
+        Assert.NotNull(item);
+        Assert.Equal(ClipKind.Image, item.Kind);
+        Assert.Equal("Image 12x8", item.Preview);
+    }
 }
 
 public class ClipboardLayoutTests

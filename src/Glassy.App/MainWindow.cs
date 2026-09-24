@@ -13,6 +13,10 @@ public sealed class MainWindow : Form
     D2DRenderer renderer;                        // null until created; dropped and rebuilt after a GPU device loss
     int pxW, pxH, failStreak, seenLayout; bool presentLogged;
     readonly System.Windows.Forms.Timer timer = new(), saveTimer = new() { Interval = 800 }, trimTimer = new() { Interval = 30000 };
+    // One bounded retry for a clipboard update that came back empty - e.g. rdpclip.exe (RDP's clipboard bridge)
+    // can advertise new clipboard formats before the data has actually finished crossing the RDP channel, so the
+    // immediate read misses it. Not a loop: each failure just restarts this single one-shot timer.
+    readonly System.Windows.Forms.Timer clipRetryTimer = new() { Interval = 250 };
     readonly uint appBarMsg = RegisterWindowMessage("GlassySystemGadget.AppBar");
     readonly ContextMenuStrip menu = new();
     readonly ToolStripMenuItem lockItem = new("Lock position");
@@ -57,6 +61,7 @@ public sealed class MainWindow : Form
         };
         saveTimer.Tick += (_, _) => { saveTimer.Stop(); Save(); };
         trimTimer.Tick += (_, _) => { if (cfg.Global.TrimMemory) TrimMemory(); };
+        clipRetryTimer.Tick += (_, _) => { clipRetryTimer.Stop(); TryCaptureClipboard(retry: false); };
         SystemEvents.SessionSwitch += OnSession;
 
         clipSearch.TextChanged += (_, _) => { clipScroll = 0; RenderFrame(); };
@@ -345,12 +350,21 @@ public sealed class MainWindow : Form
         base.WndProc(ref m);
     }
 
-    void OnClipboardChanged()
+    void OnClipboardChanged() { TryCaptureClipboard(retry: true); }
+
+    /// <summary>One capture attempt. If it comes back empty and `retry` is set, schedules exactly one retry a
+    /// quarter-second later instead of giving up immediately - the most likely local cause is another app (or
+    /// rdpclip.exe) still holding the clipboard open or mid-transfer, not "there was nothing to see." The retry's
+    /// own callback passes retry: false, so a still-failing capture does not re-arm itself: a bug in an earlier
+    /// version of this method did exactly that, turning one failed capture into an unbounded retry loop (visible
+    /// as the same "not classified" log line firing continuously for seconds) instead of a single bounded retry.</summary>
+    void TryCaptureClipboard(bool retry)
     {
         var clipCfg = ClipConfig(); if (clipCfg == null || clipWatcher == null) return;
         // A genuinely new item always lands at the top of the (newest-first) list, so jump the view there too -
         // otherwise a capture while scrolled down would highlight a selection row the user can't see.
         if (clipWatcher.OnClipboardUpdate(engine, clipCfg)) { clipScroll = 0; ClipboardWatcher.PlaySound(clipCfg); RenderFrame(); }
+        else if (retry) { clipRetryTimer.Stop(); clipRetryTimer.Start(); }
     }
 
     void PositionClipSearch()
@@ -398,7 +412,7 @@ public sealed class MainWindow : Form
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { renderer?.Dispose(); engine.Dispose(); timer.Dispose(); saveTimer.Dispose(); trimTimer.Dispose(); menu.Dispose(); clipWatcher?.Dispose(); }
+        if (disposing) { renderer?.Dispose(); engine.Dispose(); timer.Dispose(); saveTimer.Dispose(); trimTimer.Dispose(); clipRetryTimer.Dispose(); menu.Dispose(); clipWatcher?.Dispose(); }
         if (dib != IntPtr.Zero) DeleteObject(dib);
         if (memDc != IntPtr.Zero) DeleteDC(memDc);
         if (screenDc != IntPtr.Zero) ReleaseDC(IntPtr.Zero, screenDc);
