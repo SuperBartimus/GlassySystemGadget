@@ -31,7 +31,7 @@ public sealed class SettingsForm : Form
             e.Graphics.FillRectangle(new SolidBrush(e.State.HasFlag(DrawItemState.Selected) ? Color.FromArgb(90, 50, 130) : Bg2), e.Bounds);
             TextRenderer.DrawText(e.Graphics, nav.Items[e.Index].ToString(), nav.Font, new Rectangle(e.Bounds.X + 12, e.Bounds.Y, e.Bounds.Width - 12, e.Bounds.Height), Fg, TextFormatFlags.VerticalCenter | TextFormatFlags.Left);
         };
-        nav.Items.Add("General"); foreach (var k in Kinds) nav.Items.Add(PageName(k)); nav.Items.Add("About");
+        nav.Items.Add("General"); nav.Items.Add("Theme"); foreach (var k in Kinds) nav.Items.Add(PageName(k)); nav.Items.Add("About");
         host.Dock = DockStyle.Fill; host.AutoScroll = true; host.BackColor = Bg;
         Controls.Add(host); Controls.Add(nav);
         nav.SelectedIndexChanged += (_, _) => ShowPage(nav.SelectedIndex);
@@ -41,15 +41,15 @@ public sealed class SettingsForm : Form
     /// <summary>Headless check (--selftest): builds every page against live data and returns how many were built.</summary>
     internal int BuildAllPages()
     {
-        for (int i = 0; i <= Kinds.Length + 1; i++) ShowPage(i);
-        return Kinds.Length + 2;
+        for (int i = 0; i <= Kinds.Length + 2; i++) ShowPage(i);
+        return Kinds.Length + 3;
     }
 
     void ShowPage(int i)
     {
         foreach (Control c in host.Controls) c.Dispose();
         host.Controls.Clear();
-        host.Controls.Add(i == 0 ? GeneralPage() : i == Kinds.Length + 1 ? AboutPage() : KindPage(Kinds[i - 1]));
+        host.Controls.Add(i == 0 ? GeneralPage() : i == 1 ? ThemePage() : i == Kinds.Length + 2 ? AboutPage() : KindPage(Kinds[i - 2]));
     }
 
     // ------------------------------------------------------------ control helpers
@@ -92,6 +92,24 @@ public sealed class SettingsForm : Form
     {
         var b = new Button { Text = text, AutoSize = true, FlatStyle = FlatStyle.Flat, BackColor = Bg2, ForeColor = Fg, Padding = new Padding(8, 2, 8, 2) };
         b.FlatAppearance.BorderColor = Color.FromArgb(120, 80, 170); b.Click += (_, _) => click(); return b;
+    }
+    /// <summary>A button whose fill shows the current colour and whose label shows its hex; click opens the
+    /// system colour picker. Rebuilds the current page on a change so the swatch itself repaints.</summary>
+    Button ColorSwatch(string hex, Action<string> set)
+    {
+        Color Parse(string h) { try { return ColorTranslator.FromHtml(h); } catch (Exception ex) when (ex is FormatException || ex is ArgumentException) { return Color.Magenta; } }
+        var c = Parse(hex);
+        double luma = (0.299 * c.R + 0.587 * c.G + 0.114 * c.B) / 255.0;
+        var b = new Button { Text = hex.ToUpperInvariant(), Width = 100, Height = 26, FlatStyle = FlatStyle.Flat, BackColor = c, ForeColor = luma > 0.5 ? Color.Black : Color.White };
+        b.FlatAppearance.BorderColor = Color.FromArgb(120, 80, 170);
+        b.Click += (_, _) =>
+        {
+            using var dlg = new ColorDialog { Color = c, FullOpen = true };
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;
+            set($"#{dlg.Color.R:X2}{dlg.Color.G:X2}{dlg.Color.B:X2}");
+            changed(); ShowPage(nav.SelectedIndex);
+        };
+        return b;
     }
 
     // ------------------------------------------------------------ General page
@@ -180,6 +198,39 @@ public sealed class SettingsForm : Form
         return stack;
     }
 
+    // ------------------------------------------------------------ Theme page
+    Control ThemePage()
+    {
+        var th = cfg.Global.Theme;
+        var t = Table();
+        Row(t, "Background (top)", ColorSwatch(th.BackgroundTop, v => th.BackgroundTop = v));
+        Row(t, "Background (bottom)", ColorSwatch(th.BackgroundBottom, v => th.BackgroundBottom = v));
+        Row(t, "Border", ColorSwatch(th.Border, v => th.Border = v));
+        Row(t, "Text", ColorSwatch(th.Text, v => th.Text = v));
+
+        var presets = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Top, Padding = new Padding(18, 4, 0, 12) };
+        foreach (var (name, colors) in ThemePresets.All)
+        {
+            presets.Controls.Add(Btn(name, () =>
+            {
+                th.BackgroundTop = colors.BackgroundTop; th.BackgroundBottom = colors.BackgroundBottom;
+                th.Border = colors.Border; th.Text = colors.Text;
+                changed(); ShowPage(nav.SelectedIndex);
+            }));
+        }
+
+        var stack = new Panel { Dock = DockStyle.Top, AutoSize = true };
+        stack.Controls.Add(t);
+        stack.Controls.Add(new Label { Text = "Custom colours (fine-tune after picking a preset, or set your own from scratch)", AutoSize = true, Padding = new Padding(18, 8, 0, 2), Dock = DockStyle.Top });
+        stack.Controls.Add(presets);
+        stack.Controls.Add(new Label { Text = "Presets", AutoSize = true, Font = new Font("Segoe UI", 10.5f, FontStyle.Bold), Padding = new Padding(18, 4, 0, 2), Dock = DockStyle.Top });
+        stack.Controls.Add(Note("Applies to the app's chrome only - background, border, text. Each panel's own graph " +
+            "line colours are unaffected and stay on their own settings page. A panel can override just its own " +
+            "background on its own page, below."));
+        stack.Controls.Add(Heading("Theme"));
+        return stack;
+    }
+
     // ------------------------------------------------------------ hardware pages
     static string Duration(double s) => s >= 3600 ? $"{s / 3600:0.#} h" : s >= 90 ? $"{s / 60:0.#} min" : $"{s:0.#} s";
 
@@ -202,6 +253,19 @@ public sealed class SettingsForm : Form
             Row(t, "", Note("Shown automatically when Windows reports a battery; there is no manual on/off for it."));
         else
             Row(t, "", Chk("Show this panel", p.Enabled, v => p.Enabled = v));
+        bool bgOverride = p.SectionBgTop != "";
+        var bgChk = Chk("Override background for this panel", bgOverride, v =>
+        {
+            if (v) { p.SectionBgTop = cfg.Global.Theme.BackgroundTop; p.SectionBgBottom = cfg.Global.Theme.BackgroundBottom; }
+            else { p.SectionBgTop = ""; p.SectionBgBottom = ""; }
+            ShowPage(nav.SelectedIndex);
+        });
+        Row(t, "", bgChk);
+        if (bgOverride)
+        {
+            Row(t, "Background (top)", ColorSwatch(p.SectionBgTop, v => p.SectionBgTop = v));
+            Row(t, "Background (bottom)", ColorSwatch(p.SectionBgBottom, v => p.SectionBgBottom = v));
+        }
         if (series)
         {
             var info = Note(TimeInfo(p)); void Refresh() => info.Text = TimeInfo(p);

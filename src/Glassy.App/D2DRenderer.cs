@@ -56,7 +56,11 @@ public sealed class D2DRenderer : IDisposable
     /// active window and so has no title bar of its own to put a settings button on.</summary>
     public bool ShowSettingsGear { get; set; }
 
-    static readonly (byte r, byte g, byte b) TitleCol = (245, 225, 255);
+    /// <summary>The theme's text tint - was a fixed constant, now set once per frame from GlobalConfig.Theme.Text
+    /// in Render(), same value used by every text/glyph brush in the frame.</summary>
+    (byte r, byte g, byte b) TitleCol = (245, 225, 255);
+    (byte r, byte g, byte b) borderCol = (210, 110, 255);
+    (byte r, byte g, byte b) themeBgTop = (38, 14, 58), themeBgBottom = (12, 6, 24);
 
     /// <summary>"Hardware" normally; "WARP (software)" when no GPU device is available (for example some RDP sessions).</summary>
     public string DeviceKind { get; }
@@ -139,6 +143,8 @@ public sealed class D2DRenderer : IDisposable
     public void Render(Engine e, GlobalConfig g)
     {
         float W = g.Width; float op = (float)Math.Clamp(g.Opacity, 0.2, 1.0);
+        TitleCol = Hex(g.Theme.Text); borderCol = Hex(g.Theme.Border);
+        themeBgTop = Hex(g.Theme.BackgroundTop); themeBgBottom = Hex(g.Theme.BackgroundBottom);
         var geos = new List<LineGeo>();
         try
         {
@@ -216,15 +222,20 @@ public sealed class D2DRenderer : IDisposable
     // ------------------------------------------------------------ panel parts
     void Background(PanelRuntime p, float W, float op)
     {
+        // A panel with its own SectionBgTop/Bottom set overrides the app-wide theme background for just this
+        // section; "" (the default) inherits it. Border and text stay app-wide only - Bart only asked for a
+        // per-section override on background.
+        var (tr, tg, tb) = p.Cfg.SectionBgTop != "" ? Hex(p.Cfg.SectionBgTop) : themeBgTop;
+        var (br2, bg2, bb2) = p.Cfg.SectionBgBottom != "" ? Hex(p.Cfg.SectionBgBottom) : themeBgBottom;
         var rr = new RoundedRectangle(new RawRectF(Engine.Margin, p.Top, W - Engine.Margin, p.Top + p.Height), 9, 9);
         using (var gs = dc.CreateGradientStopCollection(new[]
         {
-            new GradientStop { Position = 0, Color = new Color4(38 / 255f, 14 / 255f, 58 / 255f, 0.94f * op) },
-            new GradientStop { Position = 1, Color = new Color4(12 / 255f, 6 / 255f, 24 / 255f, op) },
+            new GradientStop { Position = 0, Color = new Color4(tr / 255f, tg / 255f, tb / 255f, 0.94f * op) },
+            new GradientStop { Position = 1, Color = new Color4(br2 / 255f, bg2 / 255f, bb2 / 255f, op) },
         }))
         using (var bg = dc.CreateLinearGradientBrush(new LinearGradientBrushProperties { StartPoint = new Vector2(0, p.Top), EndPoint = new Vector2(0, p.Top + p.Height) }, gs))
             dc.FillRoundedRectangle(rr, bg);
-        dc.DrawRoundedRectangle(rr, Br(210, 110, 255, 0.55f * Math.Min(1f, op + 0.2f)), 1.1f);
+        dc.DrawRoundedRectangle(rr, Br(borderCol, 0.55f * Math.Min(1f, op + 0.2f)), 1.1f);
     }
 
     void GridAndFill(PanelRuntime p, float W, List<LineGeo> geos)

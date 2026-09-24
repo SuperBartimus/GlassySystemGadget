@@ -13,6 +13,34 @@ public enum ScaleMode { Auto, Fixed }
 /// <summary>DiskIo and DiskSpace are legacy: they exist only so old config files still load, and are merged into Drives on load.</summary>
 public enum PanelKind { Cpu, Ram, Gpu, Network, DiskIo, DiskSpace, TopProcesses, Uptime, Drives, Clipboard, Battery }
 
+/// <summary>The app's cosmetic chrome - background, border, text tint. Deliberately separate from per-line graph
+/// colours (LineConfig.Color), which stay exactly as configurable as before; this is only the "shell" around them.</summary>
+public sealed class ThemeColors
+{
+    public string BackgroundTop { get; set; } = "#260E3A";
+    public string BackgroundBottom { get; set; } = "#0C0618";
+    public string Border { get; set; } = "#D26EFF";
+    public string Text { get; set; } = "#F5E1FF";
+}
+
+/// <summary>Nine starting points; picking one just fills in the four ThemeColors fields above - there is no
+/// persisted "current preset", so hand-tuning afterward never fights with it.</summary>
+public static class ThemePresets
+{
+    public static readonly (string Name, ThemeColors Colors)[] All =
+    {
+        ("Violet (default)", new ThemeColors { BackgroundTop = "#260E3A", BackgroundBottom = "#0C0618", Border = "#D26EFF", Text = "#F5E1FF" }),
+        ("Midnight Blue", new ThemeColors { BackgroundTop = "#101B3A", BackgroundBottom = "#060B18", Border = "#6EA8FF", Text = "#E4EEFF" }),
+        ("Slate", new ThemeColors { BackgroundTop = "#262B32", BackgroundBottom = "#101317", Border = "#92A3B4", Text = "#E9EDF2" }),
+        ("Forest", new ThemeColors { BackgroundTop = "#0E3722", BackgroundBottom = "#061809", Border = "#6EDB9A", Text = "#E3F5EA" }),
+        ("Crimson", new ThemeColors { BackgroundTop = "#3A0F17", BackgroundBottom = "#170608", Border = "#FF6E7E", Text = "#FFE3E6" }),
+        ("Amber", new ThemeColors { BackgroundTop = "#3A2610", BackgroundBottom = "#180E04", Border = "#FFB463", Text = "#FFEAD3" }),
+        ("Teal", new ThemeColors { BackgroundTop = "#0E3838", BackgroundBottom = "#061818", Border = "#5FE3D3", Text = "#E1FBF7" }),
+        ("Mono", new ThemeColors { BackgroundTop = "#232323", BackgroundBottom = "#0A0A0A", Border = "#A6A6A6", Text = "#EDEDED" }),
+        ("High Contrast", new ThemeColors { BackgroundTop = "#000000", BackgroundBottom = "#000000", Border = "#FFFFFF", Text = "#FFFFFF" }),
+    };
+}
+
 public sealed class LineConfig
 {
     public string Key { get; set; } = "";
@@ -70,6 +98,9 @@ public sealed class PanelConfig
     public bool ClipHonorHistoryFlag { get; set; } = true;
     // Battery
     public bool BatteryIconLeft { get; set; } = true;
+    // Theme: "" means inherit GlobalConfig.Theme's background for this one panel.
+    public string SectionBgTop { get; set; } = "";
+    public string SectionBgBottom { get; set; } = "";
 }
 
 public sealed class GlobalConfig
@@ -89,6 +120,7 @@ public sealed class GlobalConfig
     public bool EcoQos { get; set; } = true;
     public bool TrimMemory { get; set; } = true;
     public bool StartWithWindows { get; set; }
+    public ThemeColors Theme { get; set; } = new();
 }
 
 public sealed class AppConfig

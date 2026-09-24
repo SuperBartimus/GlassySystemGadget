@@ -71,6 +71,31 @@ public class ConfigTests
     }
 
     [Fact]
+    public void Theme_and_per_section_background_override_round_trip()
+    {
+        var path = Tmp(); var cfg = AppConfig.CreateDefault();
+        cfg.Global.Theme.Border = "#123456"; cfg.Panels[0].SectionBgTop = "#ABCDEF"; cfg.Panels[0].SectionBgBottom = "#111111";
+        ConfigStore.Save(cfg, path);
+        var back = ConfigStore.Load(path);
+        Assert.Equal("#123456", back.Global.Theme.Border);
+        Assert.Equal("#ABCDEF", back.Panels[0].SectionBgTop);
+        Assert.Equal("#111111", back.Panels[0].SectionBgBottom);
+        Assert.Equal("", back.Panels[1].SectionBgTop);   // every other panel still inherits by default
+    }
+
+    [Fact]
+    public void All_theme_presets_have_well_formed_hex_colors()
+    {
+        Assert.Equal(9, ThemePresets.All.Length);
+        foreach (var (name, c) in ThemePresets.All)
+        {
+            Assert.False(string.IsNullOrWhiteSpace(name));
+            foreach (var hex in new[] { c.BackgroundTop, c.BackgroundBottom, c.Border, c.Text })
+                Assert.Matches("^#[0-9A-Fa-f]{6}$", hex);
+        }
+    }
+
+    [Fact]
     public void Corrupt_file_is_kept_as_bad_and_defaults_returned()
     {
         var path = Tmp(); Directory.CreateDirectory(Path.GetDirectoryName(path)!);
