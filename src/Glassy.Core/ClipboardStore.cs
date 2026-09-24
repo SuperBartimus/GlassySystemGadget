@@ -16,6 +16,11 @@ public sealed class ClipboardStore
     /// <summary>Newest first. Mutated in place (never reassigned), so a reference taken once stays live.</summary>
     public List<ClipItem> Items { get; } = new();
 
+    /// <summary>Id of whichever item is currently on the OS clipboard - "" if none (nothing captured or restored
+    /// yet this run). Not persisted: it reflects live OS clipboard state, which a restart doesn't preserve either.
+    /// Set here on every genuine capture; the App layer sets it too after a successful restore-to-clipboard.</summary>
+    public string SelectedId { get; set; } = "";
+
     public ClipboardStore(string dir) { this.dir = dir; Load(); }
 
     string IndexPath => Path.Combine(dir, "index.json");
@@ -41,6 +46,7 @@ public sealed class ClipboardStore
         Items.Insert(0, item);
         Trim(maxItems);
         Save();
+        SelectedId = item.Id;
         return true;
     }
 

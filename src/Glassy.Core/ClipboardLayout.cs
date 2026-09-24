@@ -62,6 +62,34 @@ public static class ClipboardLayout
     public static float ClampScroll(float scroll, float panelHeight, bool searchVisible, IReadOnlyList<float> rowHeights) =>
         Math.Clamp(scroll, 0, MaxScroll(panelHeight, searchVisible, rowHeights));
 
+    /// <summary>The minimal scroll adjustment so row `index` is fully visible in the list area - aligns to the top
+    /// edge if it's above the view, the bottom edge if below, unchanged if already visible. Used for scroll-wheel
+    /// driven selection: the newly selected row must always be on screen without a separate drag-to-scroll step.</summary>
+    public static float ScrollToShow(int index, float panelHeight, bool searchVisible, IReadOnlyList<float> rowHeights, float scroll)
+    {
+        if (index < 0 || index >= rowHeights.Count) return ClampScroll(scroll, panelHeight, searchVisible, rowHeights);
+        float top = 0; for (int i = 0; i < index; i++) top += rowHeights[i];
+        float bottom = top + rowHeights[index];
+        float areaHeight = ListAreaHeight(panelHeight, searchVisible);
+        float s = scroll;
+        if (top < s) s = top;
+        else if (bottom > s + areaHeight) s = bottom - areaHeight;
+        return ClampScroll(s, panelHeight, searchVisible, rowHeights);
+    }
+
+    /// <summary>Scrollbar thumb geometry (top offset from the list's top, and height), in DIPs. Height 0 means
+    /// hidden - everything already fits, so a thumb spanning the whole track would tell the user nothing.</summary>
+    public static (float top, float height) ScrollThumb(float panelHeight, bool searchVisible, IReadOnlyList<float> rowHeights, float scroll)
+    {
+        float trackHeight = ListAreaHeight(panelHeight, searchVisible);
+        float total = TotalContentHeight(rowHeights);
+        if (total <= trackHeight || trackHeight <= 0) return (0, 0);
+        float thumbHeight = Math.Max(18, trackHeight * trackHeight / total);
+        float max = MaxScroll(panelHeight, searchVisible, rowHeights);
+        float frac = max > 0 ? Math.Clamp(scroll, 0, max) / max : 0;
+        return ((trackHeight - thumbHeight) * frac, thumbHeight);
+    }
+
     /// <summary>mouseX/mouseY are DIPs relative to the same origin as PanelRuntime.Top. rowHeights.Count must equal the item count.</summary>
     public static (int index, ClipHit hit) HitTest(float panelTop, float panelHeight, float panelWidth, bool searchVisible, IReadOnlyList<float> rowHeights, float scrollOffset, float mouseX, float mouseY)
     {

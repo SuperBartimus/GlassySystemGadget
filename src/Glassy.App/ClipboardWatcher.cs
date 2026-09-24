@@ -2,6 +2,7 @@ using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
+using System.Linq;
 using System.Media;
 using System.Runtime.InteropServices;
 using Glassy.Core;
@@ -16,7 +17,15 @@ namespace Glassy.App;
 public sealed class ClipboardWatcher : IDisposable
 {
     readonly IntPtr hwnd;
-    bool ownWrite;   // set around our own SetDataObject call so the resulting WM_CLIPBOARDUPDATE is not re-captured
+    // Remembers dedup keys we ourselves just wrote to the OS clipboard, each for a short window, so the resulting
+    // WM_CLIPBOARDUPDATE isn't re-captured as a new item. A single one-shot flag isn't enough for two reasons seen
+    // with scroll-driven selection: (1) Clipboard.SetDataObject(data, true) (the "keep after app exits" flush) can
+    // fire more than one WM_CLIPBOARDUPDATE for the same write, and (2) fast scrolling calls this repeatedly before
+    // earlier echoes have arrived, so whichever echo shows up must match the write that produced it, not just the
+    // most recent write. A short per-key time window handles any echo count and any amount of overlap; genuinely
+    // new content (a different dedup key) is never held back by it.
+    readonly List<(string key, long atMs)> recentWrites = new();
+    const int EchoWindowMs = 500;
 
     public ClipboardWatcher(IntPtr hwnd)
     {
@@ -27,15 +36,22 @@ public sealed class ClipboardWatcher : IDisposable
     /// <summary>Call from WndProc on WM_CLIPBOARDUPDATE. Returns true if a new item was actually captured (worth a sound/re-render).</summary>
     public bool OnClipboardUpdate(Engine engine, PanelConfig cfg)
     {
-        if (ownWrite) { ownWrite = false; return false; }
         try
         {
             var data = System.Windows.Forms.Clipboard.GetDataObject();
             var candidate = ClipboardClassifier.Classify(data, cfg.ClipMaxImageBytes);
             if (candidate == null) return false;
+            if (IsRecentOwnWrite(candidate.Item.DedupKey)) return false;
             return engine.Clipboard.Add(candidate, cfg.ClipMaxItems);
         }
         catch (ExternalException) { return false; }   // another app has the clipboard open right now (COMException derives from this too)
+    }
+
+    bool IsRecentOwnWrite(string dedupKey)
+    {
+        long now = Environment.TickCount64;
+        recentWrites.RemoveAll(w => now - w.atMs > EchoWindowMs);
+        return recentWrites.Any(w => w.key == dedupKey);
     }
 
     public void RestoreToClipboard(ClipItem item, ClipboardStore store)
@@ -59,9 +75,9 @@ public sealed class ClipboardWatcher : IDisposable
                 data.SetData("Preferred DropEffect", new MemoryStream(BitConverter.GetBytes(effect)));
                 break;
         }
-        ownWrite = true;
-        try { System.Windows.Forms.Clipboard.SetDataObject(data, true); }
-        catch (ExternalException) { ownWrite = false; }   // clipboard busy; leave it as it was rather than half-write
+        recentWrites.Add((item.DedupKey, Environment.TickCount64));
+        try { System.Windows.Forms.Clipboard.SetDataObject(data, true); store.SelectedId = item.Id; }
+        catch (ExternalException) { recentWrites.RemoveAll(w => w.key == item.DedupKey); }   // clipboard busy; leave it as it was rather than half-write
     }
 
     /// <summary>Opens the item's content in whatever the OS has associated with its type. Returns false if there was nothing to open (a Files item whose file no longer exists).</summary>

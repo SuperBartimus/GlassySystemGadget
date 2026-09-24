@@ -235,6 +235,10 @@ public sealed class MainWindow : Form
         return (items, heights);
     }
 
+    /// <summary>The scroll wheel is the whole selection mechanism (Bart: "I should not have to click to select" -
+    /// no window activation, so he never has to leave whatever app he's actually using). One notch moves the
+    /// selection one row and immediately restores that row to the OS clipboard; the view follows the selection
+    /// into view rather than scrolling freely.</summary>
     protected override void OnMouseWheel(MouseEventArgs e)
     {
         base.OnMouseWheel(e);
@@ -242,9 +246,21 @@ public sealed class MainWindow : Form
         float s = DeviceDpi / 96f; float dipY = e.Y / s;
         var panel = engine.Panels.FirstOrDefault(p => p.Cfg.Kind == PanelKind.Clipboard && dipY >= p.Top && dipY < p.Top + p.Height);
         if (panel == null) return;
-        var (_, heights) = ClipRows();
-        clipScroll = ClipboardLayout.ClampScroll(clipScroll - e.Delta / 120f * Engine.ClipLineH * 2, panel.Height, clipSearchVisible, heights);
+        var (items, heights) = ClipRows();
+        if (items.Count == 0) return;
+
+        int idx = Math.Max(0, IndexOfSelected(items));
+        idx = Math.Clamp(idx - e.Delta / 120, 0, items.Count - 1);
+        clipScroll = ClipboardLayout.ScrollToShow(idx, panel.Height, clipSearchVisible, heights, clipScroll);
+        if (engine.Clipboard.SelectedId != items[idx].Id) clipWatcher.RestoreToClipboard(items[idx], engine.Clipboard);
         RenderFrame();
+    }
+
+    int IndexOfSelected(IReadOnlyList<ClipItem> items)
+    {
+        string id = engine.Clipboard.SelectedId;
+        for (int i = 0; i < items.Count; i++) if (items[i].Id == id) return i;
+        return -1;
     }
 
     /// <summary>Returns true when the click was handled by the Clipboard panel (row action or empty panel space),
@@ -314,7 +330,9 @@ public sealed class MainWindow : Form
     void OnClipboardChanged()
     {
         var clipCfg = ClipConfig(); if (clipCfg == null || clipWatcher == null) return;
-        if (clipWatcher.OnClipboardUpdate(engine, clipCfg)) { ClipboardWatcher.PlaySound(clipCfg); RenderFrame(); }
+        // A genuinely new item always lands at the top of the (newest-first) list, so jump the view there too -
+        // otherwise a capture while scrolled down would highlight a selection row the user can't see.
+        if (clipWatcher.OnClipboardUpdate(engine, clipCfg)) { clipScroll = 0; ClipboardWatcher.PlaySound(clipCfg); RenderFrame(); }
     }
 
     void PositionClipSearch()

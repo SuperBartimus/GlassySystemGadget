@@ -219,6 +219,7 @@ public sealed class SettingsForm : Form
             Row(t, "", Chk("Play a sound when something new is copied", p.ClipPlaySound, v => p.ClipPlaySound = v));
             Row(t, "", Chk("Put the most recent item back on the clipboard at startup", p.ClipRestoreOnStartup, v => p.ClipRestoreOnStartup = v));
             Row(t, "", Chk("Search box starts open", p.ClipSearchExpanded, v => p.ClipSearchExpanded = v));
+            Row(t, "Scroll bar width (px, 0 hides it)", Num(0, 6, p.ClipScrollBarWidth, 0, 1, v => p.ClipScrollBarWidth = (int)v));
             t.Controls.Add(new Label());
             t.Controls.Add(Note("A row grows to fit its content - short clips take less space - up to the max preview lines above " +
                 "(an image counts its scaled height as roughly that many lines). Longer text is truncated with … rather than cut " +

@@ -492,10 +492,30 @@ public sealed class D2DRenderer : IDisposable
         dc.PopAxisAlignedClip();
         if (items.Count == 0)
             Text(ClipSearchQuery != "" ? "No matches." : "Nothing copied yet.", fBody, l, listTop + 6, r, listTop + 24, dim);
+
+        int barW = p.Cfg.ClipScrollBarWidth;
+        if (barW > 0)
+        {
+            var (thumbTop, thumbH) = ClipboardLayout.ScrollThumb(p.Height, ClipSearchVisible, heights, ClipScroll);
+            if (thumbH > 0)
+            {
+                float bx = r + 3;
+                dc.FillRoundedRectangle(new RoundedRectangle(new RawRectF(bx, listTop, bx + barW, listBottom), barW / 2f, barW / 2f), Br(255, 255, 255, 0.06f));
+                dc.FillRoundedRectangle(new RoundedRectangle(new RawRectF(bx, listTop + thumbTop, bx + barW, listTop + thumbTop + thumbH), barW / 2f, barW / 2f), Br(TitleCol, 0.35f));
+            }
+        }
     }
+
+    static readonly (byte r, byte g, byte b) ClipSelectedCol = (77, 225, 255);
 
     void DrawClipRow(ClipItem item, ClipboardStore store, float l, float r, float rowTop, float rowHeight, float bodyWidth, int maxLines, ID2D1Brush txt, ID2D1Brush dim)
     {
+        if (store.SelectedId != "" && item.Id == store.SelectedId)
+        {
+            // The one row that's actually on the OS clipboard right now - a persistent marker, not a hover state.
+            dc.FillRoundedRectangle(new RoundedRectangle(new RawRectF(l - 4, rowTop, r, rowTop + rowHeight - 1), 4, 4), Br(ClipSelectedCol, 0.07f));
+            dc.FillRoundedRectangle(new RoundedRectangle(new RawRectF(l - 4, rowTop + 2, l - 1, rowTop + rowHeight - 3), 1.5f, 1.5f), Br(ClipSelectedCol, 0.9f));
+        }
         var g = ClipboardLayout.Row(l, r, rowTop);
         DrawTypeBadge(g.TypeIconX, g.IconY, item, dim);
         Text(item.TypeLabel + "  " + Age(item.CreatedUtc), fSmall, g.TextLeft, rowTop + 2, g.OpenX - 6, rowTop + 14, dim);

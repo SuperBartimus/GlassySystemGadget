@@ -138,6 +138,17 @@ public class ClipboardStoreTests
     }
 
     [Fact]
+    public void A_capture_marks_itself_as_the_selected_row()
+    {
+        var store = new ClipboardStore(TmpDir());
+        Assert.Equal("", store.SelectedId);
+        store.Add(Text("a"), 50);
+        Assert.Equal(store.Items[0].Id, store.SelectedId);
+        store.Add(Text("b"), 50);
+        Assert.Equal(store.Items[0].Id, store.SelectedId);   // the newer capture, not "a"
+    }
+
+    [Fact]
     public void Trim_drops_oldest_unpinned_but_never_a_pinned_item()
     {
         var store = new ClipboardStore(TmpDir());
@@ -325,6 +336,35 @@ public class ClipboardLayoutTests
         var shortRows = ClipboardLayout.MaxScroll(150, false, Uniform(5, 20));
         var tallRows = ClipboardLayout.MaxScroll(150, false, Uniform(5, 80));
         Assert.True(tallRows > shortRows);
+    }
+
+    [Fact]
+    public void ScrollToShow_leaves_an_already_visible_row_alone()
+    {
+        // panel 200 tall, header 26 -> list area 174px; rows are 30px, so row 3 (top=90,bottom=120) is fully visible at scroll 0
+        var scroll = ClipboardLayout.ScrollToShow(3, 200, false, Uniform(10, 30), 0);
+        Assert.Equal(0, scroll);
+    }
+
+    [Fact]
+    public void ScrollToShow_aligns_to_top_when_the_row_is_above_the_view_and_bottom_when_below()
+    {
+        var rows = Uniform(10, 30);
+        // scrolled to show rows starting at 150; row 2 (top=60) is above that -> snap its top into view
+        Assert.Equal(60, ClipboardLayout.ScrollToShow(2, 200, false, rows, 150));
+        // list area is 174px; row 8 (top=240,bottom=270) is below a scroll of 0 -> snap its bottom into view
+        Assert.Equal(270 - (200 - Engine.ClipHeader), ClipboardLayout.ScrollToShow(8, 200, false, rows, 0));
+    }
+
+    [Fact]
+    public void ScrollThumb_is_hidden_when_everything_fits_and_proportional_otherwise()
+    {
+        Assert.Equal(0, ClipboardLayout.ScrollThumb(400, false, Uniform(3, 30), 0).height);   // 3 short rows fit easily
+        var (top0, h) = ClipboardLayout.ScrollThumb(200, false, Uniform(20, 30), 0);
+        Assert.True(h > 0 && h < 200 - Engine.ClipHeader);   // visible, but shorter than the track
+        Assert.Equal(0, top0);                                // scrolled to the very top
+        var (topMax, _) = ClipboardLayout.ScrollThumb(200, false, Uniform(20, 30), ClipboardLayout.MaxScroll(200, false, Uniform(20, 30)));
+        Assert.True(topMax > top0);                            // scrolled to the bottom: thumb moved down
     }
 
     [Fact]

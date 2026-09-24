@@ -60,6 +60,8 @@ public sealed class PanelConfig
     public bool ClipSearchExpanded { get; set; }
     /// <summary>Max lines (or the image-thumbnail height equivalent) a single row grows to before it stops - a short clip takes less space.</summary>
     public int ClipMaxPreviewLines { get; set; } = 11;
+    /// <summary>0 hides it entirely.</summary>
+    public int ClipScrollBarWidth { get; set; } = 5;
     // Battery
     public bool BatteryIconLeft { get; set; } = true;
 }
