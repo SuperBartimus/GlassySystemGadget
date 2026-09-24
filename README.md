@@ -104,6 +104,12 @@ for Settings, Lock position, Reset position and Exit.
   (reserves screen space), monitor, width, opacity, click-through, lock position,
   start with Windows, process priority, update interval, efficiency mode
   (EcoQoS), periodic memory release, panel order and visibility.
+- Theme: the app's chrome - background, border and text tint (not the graph
+  line colours, which stay on each hardware page as before). Nine presets to
+  start from, plus four colour pickers to fine-tune or set your own from
+  scratch; picking a preset just fills in those four colours, so hand-tuning
+  afterward never fights with it. Any panel can also override just its own
+  background on its own settings page.
 - One page per hardware type: height, live/history durations and split, average
   or peak history, fixed or automatic scale, per-line colour/width/glow/fill.
   Network adds combined-or-selected adapters; Drives adds the drive checklist and
@@ -123,7 +129,8 @@ for Settings, Lock position, Reset position and Exit.
 dotnet test GlassySystemGadget\tests\Glassy.Tests -c Release
 ```
 
-87 tests: ring/bucket maths, config round trip, corrupt-file recovery and
+92 tests: ring/bucket maths, config round trip (incl. the theme colours and
+per-panel background override), theme preset validity, corrupt-file recovery and
 migration (of the old disk panels, and to add the Clipboard and Battery panels
 to a config that predates them), the raw NtQuerySystemInformation offsets
 (checked against this process, including a buffer-growth regression this
