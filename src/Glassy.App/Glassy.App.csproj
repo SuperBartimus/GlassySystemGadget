@@ -14,8 +14,8 @@
     <TieredCompilation>true</TieredCompilation>
     <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
-    <!-- Shown on the Settings "About" page; bump this on each tagged release (currently v0.3.0). -->
-    <Version>0.3.0</Version>
+    <!-- Shown on the Settings "About" page; bump this on each tagged release (currently v0.4.0). -->
+    <Version>0.4.0</Version>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Vortice.Direct2D1" Version="3.8.3" />
