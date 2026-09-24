@@ -31,14 +31,20 @@ Panels (each its own graph group, reorderable, individually switchable):
 - Clipboard: a scrollable history of what you copy (text, formatted text, images,
   file paths from cut/copy in Explorer), newest first, with search, per-item pin
   and delete, and a button per row to open the item in whatever app the OS has
-  associated with its type. Click a row to put it back on the clipboard (you
-  still press Ctrl+V yourself; nothing types into another window for you).
-  Captured items are excluded automatically when the source app marks them
-  "exclude from clipboard history" (most password managers do this). Text
-  wraps across multiple lines (word-wrapped, ending in `…` if it still
-  overflows the per-panel line cap); a file list shows each path word-wrapped
-  on its own lines with a small tinted type glyph, using the row's full width;
-  an image shows an actual scaled thumbnail.
+  associated with its type. Hover the panel and scroll - no click, no bringing
+  the widget to the foreground - to move a persistent selection one row at a
+  time; each row you land on is immediately restored to the OS clipboard (you
+  still press Ctrl+V yourself; nothing types into another window for you). The
+  clip currently on the clipboard is marked with a coloured accent bar, and a
+  new capture auto-selects itself and jumps the list to the top. A row can
+  still be clicked directly, and a configurable scrollbar (0 hides it) shows
+  where you are in a long history. Captured items are excluded automatically
+  when the source app marks them "exclude from clipboard history" (most
+  password managers do this). Text wraps across multiple lines (word-wrapped,
+  ending in `…` if it still overflows the per-panel line cap); a file list
+  shows each path word-wrapped on its own lines with a small tinted type
+  glyph, using the row's full width; an image shows an actual scaled
+  thumbnail.
 
 Memory, GPU, Network and the drive graphs carry a tiny legend of the lines that
 are switched on (network and drives include the current values).
@@ -86,9 +92,11 @@ apphost). Do not enable `UseAppHost`. To rebuild, exit the widget first (right
 click, Exit): a running widget locks the DLLs.
 
 Config lives in `%AppData%\GlassySystemGadget\config.json` (created on first
-exit or first settings change). Launching the app a second time opens Settings
-in the running widget. Right-click the widget for Settings, Lock position,
-Reset position and Exit.
+exit or first settings change). Hover the widget and a settings gear appears
+in the top-right corner (the widget deliberately never takes focus, so this
+is the discoverable way in without right-clicking). Launching the app a
+second time also opens Settings in the running widget. Right-click the widget
+for Settings, Lock position, Reset position and Exit.
 
 ## Settings
 
@@ -102,9 +110,11 @@ Reset position and Exit.
   show-activity / show-space-bar switches; Top processes adds rows, sort and the
   percentage at which the bar is full and red (default 25% of total CPU);
   Clipboard adds items kept, image size cap, capture sound (system or a .wav you
-  pick), restore-last-item-on-startup, whether the search box starts open, and a
-  "clear history (keep pinned)" button; Battery adds only which side its glyph
-  sits on (no show/hide - see Known limits).
+  pick), restore-last-item-on-startup, whether the search box starts open,
+  scroll bar width (0 hides it), and a "clear history (keep pinned)" button;
+  Battery adds only which side its glyph sits on (no show/hide - see Known
+  limits).
+- About: version, author and a link back to this repo.
 - Changing a graph's durations or split restarts that graph's history.
 
 ## Build And Test
@@ -113,7 +123,7 @@ Reset position and Exit.
 dotnet test GlassySystemGadget\tests\Glassy.Tests -c Release
 ```
 
-83 tests: ring/bucket maths, config round trip, corrupt-file recovery and
+87 tests: ring/bucket maths, config round trip, corrupt-file recovery and
 migration (of the old disk panels, and to add the Clipboard and Battery panels
 to a config that predates them), the raw NtQuerySystemInformation offsets
 (checked against this process, including a buffer-growth regression this
@@ -122,10 +132,11 @@ quoting, the load and discharge colour ramps, clipboard classification and
 storage (dedup, pin, trim, search, blob round trip - synthetic clipboard data
 only, plus one real OS-clipboard round trip on its own STA thread that saves
 and restores whatever was actually on the clipboard), the clipboard row/icon
-hit-test math over variable row heights (mutation-tested), and the engine's
-handling of drives, adapters, the clipboard store and the battery (a fake
-provider, since the dev machine is a desktop with none) all appearing and
-changing live. Headless checks of the app itself:
+hit-test math over variable row heights (mutation-tested), the scroll-to-
+selection and scrollbar geometry, and the engine's handling of drives,
+adapters, the clipboard store and the battery (a fake provider, since the dev
+machine is a desktop with none) all appearing and changing live. Headless
+checks of the app itself:
 
 ```powershell
 dotnet ...\Glassy.App.dll --config $env:TEMP\t.json --shot out.png --demo   # render one frame to PNG

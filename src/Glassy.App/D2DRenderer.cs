@@ -51,6 +51,10 @@ public sealed class D2DRenderer : IDisposable
     public float ClipScroll { get; set; }
     public bool ClipSearchVisible { get; set; }
     public string ClipSearchQuery { get; set; } = "";
+    /// <summary>The Settings gear, top-left, overlaid on whatever panel happens to be first - only while the
+    /// mouse is over the widget (MainWindow sets this from hover state), since the widget never becomes the
+    /// active window and so has no title bar of its own to put a settings button on.</summary>
+    public bool ShowSettingsGear { get; set; }
 
     static readonly (byte r, byte g, byte b) TitleCol = (245, 225, 255);
 
@@ -165,6 +169,7 @@ public sealed class D2DRenderer : IDisposable
                 dc.PopAxisAlignedClip();
             }
             foreach (var p in e.Panels) Content(p, W, e);
+            if (ShowSettingsGear) DrawSettingsGear(W);
             dc.EndDraw();
         }
         finally { foreach (var x in geos) { x.Line?.Dispose(); x.Area?.Dispose(); } }
@@ -732,6 +737,30 @@ public sealed class D2DRenderer : IDisposable
         var center = new Vector2(cx + 6, cy + 6);
         dc.DrawEllipse(new Ellipse(center, 4.5f, 4.5f), br, 1.3f);
         dc.DrawLine(new Vector2(cx + 9.5f, cy + 9.5f), new Vector2(cx + 13, cy + 13), br, 1.5f);
+    }
+
+    static readonly (byte r, byte g, byte b) GearAccent = (255, 90, 220);
+
+    /// <summary>A solid, filled gear/sprocket (thick radial teeth + filled body), overlaid at the widget's
+    /// top-right corner - a backing plate keeps it legible over whatever panel content happens to be underneath.
+    /// Solid and accent-coloured on purpose (Bart: "make it bigger... colored/solid to make it more noticeable"),
+    /// unlike every other glyph in the app, which are all thin outlines - this one is a primary action, not a
+    /// passive status indicator, and needs to read as a button even glanced at quickly.</summary>
+    void DrawSettingsGear(float W)
+    {
+        float size = Engine.GearSize;
+        float x = W - Engine.GearMargin - size, y = Engine.GearMargin;
+        float cx = x + size / 2, cy = y + size / 2, rOuter = size / 2, rBody = rOuter - 7f;
+        dc.FillRoundedRectangle(new RoundedRectangle(new RawRectF(x - 4, y - 4, x + size + 4, y + size + 4), 8, 8), Br(20, 10, 35, 0.75f));
+        var br = Br(GearAccent);
+        for (int i = 0; i < 8; i++)
+        {
+            double a = i * Math.PI / 4;
+            var inner = new Vector2(cx + (float)(Math.Cos(a) * (rBody - 1)), cy + (float)(Math.Sin(a) * (rBody - 1)));
+            var outer = new Vector2(cx + (float)(Math.Cos(a) * rOuter), cy + (float)(Math.Sin(a) * rOuter));
+            dc.DrawLine(inner, outer, br, 4f, roundStroke);
+        }
+        dc.FillEllipse(new Ellipse(new Vector2(cx, cy), rBody, rBody), br);
     }
 
     // ponytail: a real per-extension OS icon (SHGetFileInfo -> Icon.FromHandle -> GDI+ -> premultiply -> ID2D1Bitmap

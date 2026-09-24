@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using Glassy.Core;
 
@@ -30,7 +31,7 @@ public sealed class SettingsForm : Form
             e.Graphics.FillRectangle(new SolidBrush(e.State.HasFlag(DrawItemState.Selected) ? Color.FromArgb(90, 50, 130) : Bg2), e.Bounds);
             TextRenderer.DrawText(e.Graphics, nav.Items[e.Index].ToString(), nav.Font, new Rectangle(e.Bounds.X + 12, e.Bounds.Y, e.Bounds.Width - 12, e.Bounds.Height), Fg, TextFormatFlags.VerticalCenter | TextFormatFlags.Left);
         };
-        nav.Items.Add("General"); foreach (var k in Kinds) nav.Items.Add(PageName(k));
+        nav.Items.Add("General"); foreach (var k in Kinds) nav.Items.Add(PageName(k)); nav.Items.Add("About");
         host.Dock = DockStyle.Fill; host.AutoScroll = true; host.BackColor = Bg;
         Controls.Add(host); Controls.Add(nav);
         nav.SelectedIndexChanged += (_, _) => ShowPage(nav.SelectedIndex);
@@ -40,15 +41,15 @@ public sealed class SettingsForm : Form
     /// <summary>Headless check (--selftest): builds every page against live data and returns how many were built.</summary>
     internal int BuildAllPages()
     {
-        for (int i = 0; i <= Kinds.Length; i++) ShowPage(i);
-        return Kinds.Length + 1;
+        for (int i = 0; i <= Kinds.Length + 1; i++) ShowPage(i);
+        return Kinds.Length + 2;
     }
 
     void ShowPage(int i)
     {
         foreach (Control c in host.Controls) c.Dispose();
         host.Controls.Clear();
-        host.Controls.Add(i == 0 ? GeneralPage() : KindPage(Kinds[i - 1]));
+        host.Controls.Add(i == 0 ? GeneralPage() : i == Kinds.Length + 1 ? AboutPage() : KindPage(Kinds[i - 1]));
     }
 
     // ------------------------------------------------------------ control helpers
@@ -159,6 +160,23 @@ public sealed class SettingsForm : Form
         stack.Controls.Add(page);
         stack.Controls.Add(Heading("General"));
         // Dock.Top stacks in reverse add order, so the heading added last ends up first.
+        return stack;
+    }
+
+    // ------------------------------------------------------------ About page
+    Control AboutPage()
+    {
+        var stack = new Panel { Dock = DockStyle.Top, AutoSize = true };
+        var t = Table();
+        var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+        Row(t, "Version", new Label { Text = version != null ? $"{version.Major}.{version.Minor}.{version.Build}" : "dev", AutoSize = true });
+        Row(t, "Author", new Label { Text = "Bart Strauss", AutoSize = true });
+        var link = new LinkLabel { Text = "github.com/SuperBartimus/GlassySystemGadget", AutoSize = true, LinkColor = Color.FromArgb(180, 140, 255) };
+        link.Click += (_, _) => { try { Process.Start(new ProcessStartInfo("https://github.com/SuperBartimus/GlassySystemGadget") { UseShellExecute = true }); } catch (System.ComponentModel.Win32Exception) { } };
+        Row(t, "GitHub", link);
+        Row(t, "License", new Label { Text = "MIT", AutoSize = true });
+        stack.Controls.Add(t);
+        stack.Controls.Add(Heading("About"));
         return stack;
     }
 

@@ -28,6 +28,7 @@ public sealed class MainWindow : Form
     };
     float clipScroll;
     bool clipSearchVisible;
+    bool hoveringWidget;
 
     public MainWindow(AppConfig cfg, string cfgPath)
     {
@@ -195,6 +196,7 @@ public sealed class MainWindow : Form
         {
             renderer.Resize(cfg.Global.Width, engine.TotalHeight, DeviceDpi / 96f);
             renderer.ClipScroll = clipScroll; renderer.ClipSearchVisible = clipSearchVisible; renderer.ClipSearchQuery = clipSearch.Text;
+            renderer.ShowSettingsGear = hoveringWidget;
             renderer.Render(engine, cfg.Global);
             renderer.CopyTo(bits);
             if (!Present() && !presentLogged) { presentLogged = true; AppLog.Write($"UpdateLayeredWindow failed, Win32 error {Marshal.GetLastWin32Error()}"); }
@@ -219,9 +221,25 @@ public sealed class MainWindow : Form
     protected override void OnMouseDown(MouseEventArgs e)
     {
         base.OnMouseDown(e);
+        if (e.Button == MouseButtons.Left && hoveringWidget && GearHit(e.Location)) { OpenSettings(); return; }
         if (e.Button == MouseButtons.Left && HandleClipboardClick(e.Location)) return;
         if (e.Button != MouseButtons.Left || cfg.Global.LockPosition || cfg.Global.Dock != DockEdge.None) return;
         dragging = true; dragStart = Cursor.Position; posStart = pos; Capture = true;
+    }
+
+    /// <summary>The widget never becomes the active window (it's WS_EX_NOACTIVATE on purpose - see the scroll-
+    /// selection feature), so there's no title bar to put a Settings button on. Instead a gear appears at the
+    /// top-left corner, overlaid on whatever panel happens to be first, only while the mouse is actually over the
+    /// widget - discoverable without needing a permanent icon competing with the panels for attention.</summary>
+    protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); hoveringWidget = true; RenderFrame(); }
+    protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); hoveringWidget = false; RenderFrame(); }
+
+    bool GearHit(Point physical)
+    {
+        float s = DeviceDpi / 96f; float dipX = physical.X / s, dipY = physical.Y / s;
+        float x = cfg.Global.Width - Engine.GearMargin - Engine.GearSize;
+        return dipX >= x && dipX < x + Engine.GearSize
+            && dipY >= Engine.GearMargin && dipY < Engine.GearMargin + Engine.GearSize;
     }
 
     /// <summary>The items currently shown and their measured row heights - reads the renderer's own cache, so

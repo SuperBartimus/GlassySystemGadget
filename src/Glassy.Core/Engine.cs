@@ -27,6 +27,8 @@ public sealed class PanelRuntime
 public sealed class Engine : IDisposable
 {
     public const float PanelGap = 6, SectionGap = 3, Margin = 4, RowProc = 15, Header = 26, LegendRowH = 12, DriveHeader = 22, DriveBar = 16;
+    /// <summary>The Settings gear overlay, top-right corner of the widget - independent of any one panel's own layout.</summary>
+    public const float GearSize = 24, GearMargin = 6;
     public const float ClipHeader = 26, ClipIcon = 16, ClipIconTopPad = 3, ClipMinHeight = 90;
     /// <summary>Row layout, top to bottom: the icon strip (badge + type/age text + open/pin/delete, ClipIconTopPad
     /// to ClipBodyTop), then the wrapped-text/file-list/image body (ClipLineH per line, or an image's scaled
