@@ -62,6 +62,12 @@ public sealed class PanelConfig
     public int ClipMaxPreviewLines { get; set; } = 11;
     /// <summary>0 hides it entirely.</summary>
     public int ClipScrollBarWidth { get; set; } = 5;
+    /// <summary>When on (default), a source marking its content "CanIncludeInClipboardHistory=0" is skipped, same
+    /// as the more deliberate ExcludeClipboardContentFromMonitorProcessing flag - most password managers set one
+    /// of the two. rdpclip.exe (RDP's clipboard bridge) sets this same flag to 0 on everything it bridges, so
+    /// turning this off is what makes clipboard sync work over an RDP session, at the cost of that safety net for
+    /// any app that only sets this flag (not the other one) to mark content private.</summary>
+    public bool ClipHonorHistoryFlag { get; set; } = true;
     // Battery
     public bool BatteryIconLeft { get; set; } = true;
 }

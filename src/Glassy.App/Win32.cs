@@ -45,4 +45,17 @@ internal static class Win32
     // Deliberately no SHGetFileInfo/Icon.FromHandle binding: tried twice for clipboard row icons (a per-row type
     // badge, then a per-file-line icon), both crashed the process fatally regardless of how the resulting bitmap
     // was uploaded to Direct2D. See the comment above D2DRenderer.DrawFileGlyph before reintroducing this.
+
+    // ---- raw clipboard read (bypasses WinForms' IDataObject/COM layer - see ClipboardWatcher.ReadRaw) ----
+    public const uint CF_TEXT = 1, CF_BITMAP = 2, CF_DIB = 8, CF_UNICODETEXT = 13, CF_HDROP = 15;
+    [DllImport("user32.dll", SetLastError = true)] public static extern bool OpenClipboard(IntPtr hWndNewOwner);
+    [DllImport("user32.dll", SetLastError = true)] public static extern bool CloseClipboard();
+    [DllImport("user32.dll", SetLastError = true)] public static extern IntPtr GetClipboardData(uint uFormat);
+    [DllImport("user32.dll")] public static extern bool IsClipboardFormatAvailable(uint format);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern uint RegisterClipboardFormatW(string lpszFormat);
+    [DllImport("kernel32.dll")] public static extern IntPtr GlobalLock(IntPtr hMem);
+    [DllImport("kernel32.dll")] public static extern bool GlobalUnlock(IntPtr hMem);
+    [DllImport("kernel32.dll")] public static extern UIntPtr GlobalSize(IntPtr hMem);
+    // DROPFILES: DWORD pFiles; POINT pt; BOOL fNC; BOOL fWide; - all 4-byte fields, so pFiles/file-list offset is 20.
+    public const int DROPFILES_OFFSET = 20;
 }

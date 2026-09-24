@@ -1,5 +1,6 @@
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Text;
 using System.Windows.Forms;
 using Glassy.Core;
 using Xunit;
@@ -19,6 +20,21 @@ public class ClassifierTests
         Assert.Equal("hello world", a.Item.Preview);
         Assert.Equal(a.Item.DedupKey, b.Item.DedupKey);   // same content -> same key, regardless of when captured
         Assert.NotEqual(a.Item.DedupKey, ClipboardClassifier.Classify(new DataObject(DataFormats.UnicodeText, "different"), 1_000_000).Item.DedupKey);
+    }
+
+    /// <summary>Reproduces the RDP cross-device text bug (2026-09-24): GetDataPresent(UnicodeText) can be true
+    /// while GetData(UnicodeText) doesn't come back as a string - confirmed live, where the format list showed
+    /// UnicodeText/Text present but neither converted. Forces that exact shape (the format is present, but reading
+    /// it back gives raw UTF-16LE bytes, not a string) without needing a real RDP session to do it.</summary>
+    [Fact]
+    public void Text_reachable_only_as_raw_UTF16_bytes_like_over_RDP_still_classifies()
+    {
+        var data = D();
+        data.SetData(DataFormats.UnicodeText, new MemoryStream(Encoding.Unicode.GetBytes("IPICO Support Clarifications\0")));
+        var candidate = ClipboardClassifier.Classify(data, 1_000_000);
+        Assert.NotNull(candidate);
+        Assert.Equal(ClipKind.Text, candidate.Item.Kind);
+        Assert.Equal("IPICO Support Clarifications", candidate.Item.Preview);
     }
 
     [Fact]
@@ -92,6 +108,22 @@ public class ClassifierTests
         Assert.Null(ClipboardClassifier.Classify(d2, 1_000_000));
         var d3 = D(); d3.SetData(DataFormats.UnicodeText, "ok"); d3.SetData(ClipboardClassifier.FormatCanIncludeHistory, new MemoryStream(BitConverter.GetBytes(1)));
         Assert.NotNull(ClipboardClassifier.Classify(d3, 1_000_000));   // a nonzero value is not an exclusion
+    }
+
+    /// <summary>rdpclip.exe sets CanIncludeInClipboardHistory=0 on everything it bridges across an RDP session,
+    /// unrelated to any app opting out - confirmed by a direct probe of a real RDP-sourced clip, 2026-09-24. The
+    /// honorHistoryFlag parameter (PanelConfig.ClipHonorHistoryFlag in Settings) lets that be turned off without
+    /// touching the separate, more deliberate ExcludeClipboardContentFromMonitorProcessing signal.</summary>
+    [Fact]
+    public void Zero_history_flag_can_be_ignored_via_honorHistoryFlag_but_the_explicit_exclude_tag_still_wins()
+    {
+        var d1 = D(); d1.SetData(DataFormats.UnicodeText, "from rdpclip"); d1.SetData(ClipboardClassifier.FormatCanIncludeHistory, new MemoryStream(BitConverter.GetBytes(0)));
+        Assert.Null(ClipboardClassifier.Classify(d1, 1_000_000, honorHistoryFlag: true));
+        Assert.NotNull(ClipboardClassifier.Classify(d1, 1_000_000, honorHistoryFlag: false));
+
+        var d2 = D(); d2.SetData(DataFormats.UnicodeText, "secret"); d2.SetData(ClipboardClassifier.FormatExclude, "1");
+        d2.SetData(ClipboardClassifier.FormatCanIncludeHistory, new MemoryStream(BitConverter.GetBytes(0)));
+        Assert.Null(ClipboardClassifier.Classify(d2, 1_000_000, honorHistoryFlag: false));   // the deliberate tag is never optional
     }
 
     [Fact]

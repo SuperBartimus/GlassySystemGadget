@@ -238,14 +238,21 @@ public sealed class SettingsForm : Form
             Row(t, "", Chk("Put the most recent item back on the clipboard at startup", p.ClipRestoreOnStartup, v => p.ClipRestoreOnStartup = v));
             Row(t, "", Chk("Search box starts open", p.ClipSearchExpanded, v => p.ClipSearchExpanded = v));
             Row(t, "Scroll bar width (px, 0 hides it)", Num(0, 6, p.ClipScrollBarWidth, 0, 1, v => p.ClipScrollBarWidth = (int)v));
+            Row(t, "", Chk("Skip anything marked \"exclude from clipboard history\" (recommended)", p.ClipHonorHistoryFlag, v => p.ClipHonorHistoryFlag = v));
+            t.Controls.Add(new Label());
+            t.Controls.Add(Note("Most password managers mark what they copy this way, so GSG skips it automatically. Turning " +
+                "this off trades that safety net for something else: Remote Desktop's own clipboard bridge (rdpclip.exe) marks " +
+                "everything it carries between an RDP session and the local machine the same way, for its own unrelated reasons - " +
+                "so with this on, nothing copied on the other side of an RDP connection is ever captured here. Turn it off only " +
+                "if you rely on RDP clipboard sync and accept that GSG can no longer tell that case apart from a password manager " +
+                "asking to be skipped."));
             t.Controls.Add(new Label());
             t.Controls.Add(Note("A row grows to fit its content - short clips take less space - up to the max preview lines above " +
                 "(an image counts its scaled height as roughly that many lines). Longer text is truncated with … rather than cut " +
                 "off silently; a long file list shows a \"+N more\" line instead of listing every path."));
             t.Controls.Add(new Label());
-            t.Controls.Add(Note("Pinned items are never deleted by the item-count limit. A password manager (or anything that " +
-                "marks a copy \"exclude from clipboard history\") is skipped automatically; anything else you copy - including plain " +
-                "text like an API key - is stored as plain text on disk. There is no encryption."));
+            t.Controls.Add(Note("Pinned items are never deleted by the item-count limit. Anything you copy - including plain " +
+                "text like an API key - is stored as plain text on disk unless skipped above. There is no encryption."));
         }
         else if (kind == PanelKind.Battery)
         {

@@ -57,11 +57,12 @@ public static class ClipboardClassifier
         public byte[] Blob;
     }
 
-    /// <summary>Returns null when the source opted out of history, or when nothing usable was found.</summary>
-    public static Candidate Classify(IDataObject data, long maxImageBytes)
+    /// <summary>Returns null when the source opted out of history, or when nothing usable was found.
+    /// honorHistoryFlag controls whether CanIncludeInClipboardHistory=0 counts as opting out - see IsExcluded.</summary>
+    public static Candidate Classify(IDataObject data, long maxImageBytes, bool honorHistoryFlag = true)
     {
         if (data == null) return null;
-        if (IsExcluded(data)) return null;
+        if (IsExcluded(data, honorHistoryFlag)) return null;
 
         if (data.GetDataPresent(DataFormats.FileDrop) && data.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0)
             return ClassifyFiles(data, files);
@@ -89,10 +90,17 @@ public static class ClipboardClassifier
         return null;   // an app-specific format with no text/image/file representation we can use
     }
 
-    static bool IsExcluded(IDataObject data)
+    /// <summary>FormatExclude is a deliberate, app-authored "don't remember this" signal (what most password
+    /// managers set). FormatCanIncludeHistory=0 is murkier: it's Windows' own Clipboard History/Cloud Clipboard
+    /// opt-out, which some apps also set for the same reason - but rdpclip.exe (RDP's clipboard bridge) sets it to
+    /// 0 on every piece of content it bridges across an RDP session, regardless of source, which made GSG silently
+    /// reject all RDP-sourced clips (confirmed by direct probe, 2026-09-24: a plain text copy showed
+    /// CanIncludeInClipboardHistory = 0x00000000). honorHistoryFlag (PanelConfig.ClipHonorHistoryFlag, default on)
+    /// lets Bart trade that safety net for RDP clipboard sync working.</summary>
+    static bool IsExcluded(IDataObject data, bool honorHistoryFlag)
     {
         if (data.GetDataPresent(FormatExclude)) return true;
-        if (data.GetDataPresent(FormatCanIncludeHistory) && TryReadBytes(data, FormatCanIncludeHistory, out var b) && b.Length >= 4 && BitConverter.ToInt32(b, 0) == 0)
+        if (honorHistoryFlag && data.GetDataPresent(FormatCanIncludeHistory) && TryReadBytes(data, FormatCanIncludeHistory, out var b) && b.Length >= 4 && BitConverter.ToInt32(b, 0) == 0)
             return true;
         return false;
     }
@@ -101,6 +109,15 @@ public static class ClipboardClassifier
     {
         if (data.GetDataPresent(DataFormats.UnicodeText) && data.GetData(DataFormats.UnicodeText) is string u) return u;
         if (data.GetDataPresent(DataFormats.Text) && data.GetData(DataFormats.Text) is string t) return t;
+        // Same shape as the CF_BITMAP/CF_DIB fix: GetDataPresent can report a text format available while
+        // GetData's automatic string conversion still fails - confirmed over RDP (2026-09-24), where the format
+        // list showed UnicodeText/Text present but neither converted to a string. CF_UNICODETEXT's raw bytes are
+        // null-terminated UTF-16LE; decode those directly rather than relying on the automatic conversion.
+        if (data.GetDataPresent(DataFormats.UnicodeText) && TryReadBytes(data, DataFormats.UnicodeText, out var ub))
+        {
+            string s = Encoding.Unicode.GetString(ub).TrimEnd('\0');
+            if (s.Length > 0) return s;
+        }
         return "";
     }
 
