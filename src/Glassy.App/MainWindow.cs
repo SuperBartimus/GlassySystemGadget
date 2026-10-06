@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Glassy.Core;
@@ -49,6 +50,7 @@ public sealed class MainWindow : Form
         lockItem.Click += (_, _) => { cfg.Global.LockPosition = !cfg.Global.LockPosition; lockItem.Checked = cfg.Global.LockPosition; Dirty(); };
         menu.Items.Add(lockItem);
         menu.Items.Add("Reset position", null, (_, _) => { cfg.Global.X = 40; cfg.Global.Y = 40; ApplyAll(); Dirty(); });
+        menu.Items.Add("Restart", null, (_, _) => Restart());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => Close());
         ContextMenuStrip = menu;
@@ -351,7 +353,27 @@ public sealed class MainWindow : Form
         else if (m.Msg == WM_MOUSEACTIVATE) { m.Result = (IntPtr)3; return; }   // MA_NOACTIVATE
         else if (appBarMsg != 0 && m.Msg == appBarMsg && m.WParam == (IntPtr)1) { ApplyPositionAndDock(); Present(); }   // ABN_POSCHANGED
         else if (m.Msg == WM_CLIPBOARDUPDATE) { OnClipboardChanged(); }
+        else if (m.Msg == WM_DISPLAYCHANGE) { OnDisplayChanged(); }
         base.WndProc(ref m);
+    }
+
+    /// <summary>A resolution/monitor-layout change (common mid-RDP-session: the client resizes its window, or
+    /// reconnects at a different resolution) used to leave a docked widget stuck wherever it last computed its
+    /// position - nothing re-ran ApplyPositionAndDock unless a panel was also added/removed at the same moment.
+    /// AppBar's own ABN_POSCHANGED notification is not reliably sent for a raw resolution change, only for other
+    /// appbars moving, so this needed its own handler (screenshot evidence, 2026-10-05: widget stranded mid-screen
+    /// on an ultrawide after an RDP resolution change, "dock to screen edge" still configured but not applied).
+    /// ApplyPositionAndDock already does the right thing for both modes on its own - live AppBar recompute when
+    /// docked, configured X/Y plus its own ClampToScreens() safety net when not - so nothing else is needed here.
+    /// An earlier version of this method also called ClampToScreens() unconditionally afterward, which checks
+    /// overlap against Screen.WorkingArea; WorkingArea by definition excludes the AppBar-reserved strip a correctly
+    /// docked widget sits in, so that call saw a valid docked position as "off-screen" and reset it to (40,40) -
+    /// caught by sending a synthetic WM_DISPLAYCHANGE to a real running instance and reading the position it chose,
+    /// rather than assuming the fix worked because it compiled and didn't crash.</summary>
+    void OnDisplayChanged()
+    {
+        SetSize(); ApplyPositionAndDock(); PositionClipSearch(); Present();
+        AppLog.Write($"display changed: re-applied dock/position, pos={pos.X},{pos.Y} screens={Screen.AllScreens.Length}");
     }
 
     void OnClipboardChanged() { clipRetryCount = 0; TryCaptureClipboard(); }
@@ -390,6 +412,26 @@ public sealed class MainWindow : Form
         settings = new SettingsForm(cfg, engine, () => { ApplyAll(); Dirty(); });
         settings.FormClosed += (_, _) => { Save(); TrimMemory(); };
         settings.Show(); settings.TopMost = true; settings.TopMost = false; settings.Activate();
+    }
+
+    /// <summary>A manual escape hatch for any stuck state (not just the display-change case OnDisplayChanged now
+    /// handles automatically) - spawns a fresh `dotnet Glassy.App.dll` with the same arguments this process was
+    /// started with, then closes this one. The single-instance Mutex (Program.cs) is only released when this
+    /// process actually exits, which happens a little after Close() returns, not at the moment it's called - the
+    /// new process is given a short head start via a hidden `cmd /c timeout` wrapper so it doesn't race the old
+    /// one's mutex release and mistake itself for a second, redundant instance.</summary>
+    void Restart()
+    {
+        try
+        {
+            string dll = Path.Combine(AppContext.BaseDirectory, "Glassy.App.dll");
+            string args = string.Join(" ", Environment.GetCommandLineArgs().Skip(1).Select(a => a.Contains(' ') ? $"\"{a}\"" : a));
+            var psi = new ProcessStartInfo("cmd.exe", $"/c timeout /t 1 /nobreak >nul & dotnet \"{dll}\" {args}")
+            { UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden };
+            Process.Start(psi);
+        }
+        catch (Exception ex) when (ex is Win32Exception || ex is IOException) { AppLog.Write("restart failed: " + ex.Message); return; }
+        Close();
     }
 
     void OnSession(object s, SessionSwitchEventArgs e)

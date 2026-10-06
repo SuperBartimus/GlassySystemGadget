@@ -237,6 +237,34 @@ public class EngineTests
     }
 
     [Fact]
+    public void Uptime_record_persists_and_is_not_beaten_by_a_short_test_run()
+    {
+        var cfg = AppConfig.CreateDefault();
+        cfg.Global.UptimeRecordSeconds = 999_999_999;   // ~31 years - no real machine uptime will exceed this in a test
+        using var e = new Engine(cfg);
+        e.Tick();
+        var p = e.Panels.First(x => x.Cfg.Kind == PanelKind.Uptime);
+        Assert.Equal(999_999_999, cfg.Global.UptimeRecordSeconds);   // untouched: current uptime is nowhere close
+        Assert.False(p.UptimeIsRecord);
+        Assert.True(p.UptimeFraction < 1);
+        Assert.Contains("Record", p.Readout);
+        Assert.Contains("Since", p.Readout);
+    }
+
+    [Fact]
+    public void A_fresh_zero_record_is_not_flagged_as_a_celebratory_new_record()
+    {
+        var cfg = AppConfig.CreateDefault();
+        cfg.Global.UptimeRecordSeconds = 0;   // first run ever - nothing to "beat" yet
+        using var e = new Engine(cfg);
+        e.Tick();
+        var p = e.Panels.First(x => x.Cfg.Kind == PanelKind.Uptime);
+        Assert.False(p.UptimeIsRecord);
+        Assert.DoesNotContain("New record", p.Readout);
+        Assert.True(cfg.Global.UptimeRecordSeconds > 0);   // the record now tracks this session's own uptime
+    }
+
+    [Fact]
     public void Changing_durations_rebuilds_buffers_but_unrelated_edits_keep_history()
     {
         var cfg = AppConfig.CreateDefault(); using var e = new Engine(cfg);

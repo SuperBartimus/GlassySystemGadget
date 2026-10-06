@@ -121,6 +121,11 @@ public sealed class GlobalConfig
     public bool TrimMemory { get; set; } = true;
     public bool StartWithWindows { get; set; }
     public ThemeColors Theme { get; set; } = new();
+    /// <summary>The longest uptime GSG has ever observed on this machine, in seconds - persisted here so it
+    /// survives a restart (uptime itself always resets to 0 at boot). Updated live each time current uptime
+    /// exceeds it; only actually written to disk on the normal save cadence, so a crash mid-record-run can lose
+    /// at most that one session's progress, not the record itself.</summary>
+    public double UptimeRecordSeconds { get; set; }
 }
 
 public sealed class AppConfig

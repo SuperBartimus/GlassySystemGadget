@@ -19,6 +19,9 @@ public sealed class PanelRuntime
     public VolumeRow Volume;                          // drive sections
     public string Text = "";
     public string Readout = "";
+    /// <summary>Uptime panel only: current uptime as a fraction of the all-time record (0-1), for the small bar.</summary>
+    public double UptimeFraction = 1;
+    public bool UptimeIsRecord;
     internal string TimingKey = "";
     public bool IsSeries => Source != null;
 }
@@ -30,6 +33,7 @@ public sealed class Engine : IDisposable
     /// <summary>The Settings gear overlay, top-right corner of the widget - independent of any one panel's own layout.</summary>
     public const float GearSize = 24, GearMargin = 6;
     public const float ClipHeader = 26, ClipIcon = 16, ClipIconTopPad = 3, ClipMinHeight = 90;
+    public const float UptimeHeight = 54;
     /// <summary>Row layout, top to bottom: the icon strip (badge + type/age text + open/pin/delete, ClipIconTopPad
     /// to ClipBodyTop), then the wrapped-text/file-list/image body (ClipLineH per line, or an image's scaled
     /// height), then ClipBodyBottomPad. Rows are variable height - a short clip takes less space, a long one grows
@@ -52,6 +56,7 @@ public sealed class Engine : IDisposable
     DriveActivityHub activity;
     ProcessSampler procs;
     readonly ClipboardStore clipboard;
+    readonly double initialUptimeRecordSeconds;
     string layoutSig = "";
     long lastProc, lastSlow;
 
@@ -66,6 +71,7 @@ public sealed class Engine : IDisposable
         this.net = net; ownsNet = net == null;
         this.battery = battery; ownsBattery = battery == null;
         this.clipboard = clipboard ?? new ClipboardStore(ClipboardDirFor(configPath ?? ConfigStore.DefaultPath));
+        initialUptimeRecordSeconds = cfg.Global.UptimeRecordSeconds;   // captured once, before this session's own ticks can raise it, so "new record" means genuinely new
         Apply(cfg);
     }
 
@@ -204,6 +210,7 @@ public sealed class Engine : IDisposable
         }
         else if (kind == PanelKind.TopProcesses) rt.Height = Header + pc.Count * RowProc + 6;
         else if (kind == PanelKind.Clipboard) rt.Height = Math.Max(ClipMinHeight, pc.Height);
+        else if (kind == PanelKind.Uptime) rt.Height = UptimeHeight;   // title + record/since line + a small bar
         else rt.Height = 28;
     }
 
@@ -232,7 +239,16 @@ public sealed class Engine : IDisposable
             else if (p.Cfg.Kind == PanelKind.TopProcesses && doProc)
                 p.Procs = (procs ??= new ProcessSampler()).Sample(p.Cfg.Count, p.Cfg.SortByMemory);
             else if (p.Cfg.Kind == PanelKind.Uptime && (doSlow || p.Text == ""))
-                p.Text = "Uptime  " + Fmt.Uptime(TimeSpan.FromMilliseconds(Environment.TickCount64));
+            {
+                var up = TimeSpan.FromMilliseconds(Environment.TickCount64);
+                if (up.TotalSeconds > Config.Global.UptimeRecordSeconds) Config.Global.UptimeRecordSeconds = up.TotalSeconds;
+                var boot = DateTime.Now - up;
+                p.Text = "Uptime  " + Fmt.Uptime(up);
+                p.UptimeIsRecord = initialUptimeRecordSeconds > 0 && up.TotalSeconds > initialUptimeRecordSeconds;
+                p.Readout = (p.UptimeIsRecord ? "New record!" : "Record " + Fmt.Uptime(TimeSpan.FromSeconds(Config.Global.UptimeRecordSeconds)))
+                    + "   Since " + boot.ToString("MMM d, h:mm tt");
+                p.UptimeFraction = Config.Global.UptimeRecordSeconds > 0 ? Math.Clamp(up.TotalSeconds / Config.Global.UptimeRecordSeconds, 0, 1) : 1;
+            }
         }
         if (doProc) lastProc = now; if (doSlow) lastSlow = now;
     }

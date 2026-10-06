@@ -314,7 +314,15 @@ public sealed class D2DRenderer : IDisposable
         switch (p.Cfg.Kind)
         {
             case PanelKind.Uptime:
-                Text(p.Text, fBody, l, t + 5, r, t + 24, txt); return;
+                Text(p.Text, fBody, l, t + 4, r, t + 21, txt);
+                Text(p.Readout ?? "", fSmall, l, t + 22, r, t + 35, p.UptimeIsRecord ? Br(Fmt.LoadColor(1.0), 0.95f) : dim);
+                // The all-time-record bar: how far the current streak is toward (or past, if UptimeIsRecord) the
+                // longest uptime GSG has ever seen here - "nothing too bloated" per Bart, so one line and one bar.
+                float ut = t + 40;
+                dc.FillRoundedRectangle(new RoundedRectangle(new RawRectF(l, ut, r, ut + 6), 3, 3), Br(255, 255, 255, 0.10f));
+                float uw = (float)Math.Clamp(p.UptimeFraction, 0, 1) * (r - l);
+                if (uw > 1) dc.FillRoundedRectangle(new RoundedRectangle(new RawRectF(l, ut, l + uw, ut + 6), 3, 3), Br(Fmt.LoadColor(p.UptimeFraction), 0.85f));
+                return;
             case PanelKind.TopProcesses:
                 Text(p.Cfg.SortByMemory ? "Top processes (memory)" : "Top processes (CPU)", fTitle, l, t + 4, r, t + 22, txt);
                 Text(p.Cfg.SortByMemory ? "" : "CPU", fSmallR, r - 90, t + 8, r - 62, t + 22, dim); Text("Memory", fSmallR, r - 56, t + 8, r, t + 22, dim);

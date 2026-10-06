@@ -21,7 +21,7 @@ internal static class Win32
     public const int GWL_EXSTYLE = -20;
     public const uint SWP_NOSIZE = 1, SWP_NOMOVE = 2, SWP_NOACTIVATE = 0x10, SWP_NOZORDER = 4;
     public static readonly IntPtr HWND_BOTTOM = (IntPtr)1, HWND_TOPMOST = (IntPtr)(-1), HWND_NOTOPMOST = (IntPtr)(-2);
-    public const int WM_WINDOWPOSCHANGING = 0x46, WM_MOUSEACTIVATE = 0x21, WM_CLIPBOARDUPDATE = 0x031D;
+    public const int WM_WINDOWPOSCHANGING = 0x46, WM_MOUSEACTIVATE = 0x21, WM_CLIPBOARDUPDATE = 0x031D, WM_DISPLAYCHANGE = 0x007E;
     public const uint ABM_NEW = 0, ABM_REMOVE = 1, ABM_QUERYPOS = 2, ABM_SETPOS = 3, ABE_LEFT = 0, ABE_RIGHT = 2;
 
     [DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr h);
