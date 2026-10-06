@@ -11,7 +11,7 @@ public enum ProcPriority { Idle, BelowNormal }
 public enum HistoryMode { Average, Peak }
 public enum ScaleMode { Auto, Fixed }
 /// <summary>DiskIo and DiskSpace are legacy: they exist only so old config files still load, and are merged into Drives on load.</summary>
-public enum PanelKind { Cpu, Ram, Gpu, Network, DiskIo, DiskSpace, TopProcesses, Uptime, Drives, Clipboard, Battery }
+public enum PanelKind { Cpu, Ram, Gpu, Network, DiskIo, DiskSpace, TopProcesses, Uptime, Drives, Clipboard, Battery, Weather }
 
 /// <summary>The app's cosmetic chrome - background, border, text tint. Deliberately separate from per-line graph
 /// colours (LineConfig.Color), which stay exactly as configurable as before; this is only the "shell" around them.</summary>
@@ -98,6 +98,23 @@ public sealed class PanelConfig
     public bool ClipHonorHistoryFlag { get; set; } = true;
     // Battery
     public bool BatteryIconLeft { get; set; } = true;
+    // Weather
+    public WeatherLocationMode WeatherMode { get; set; } = WeatherLocationMode.Zip;
+    public string WeatherZip { get; set; } = "";
+    /// <summary>Zippopotam.us country code (lowercase ISO 3166-1 alpha-2, e.g. "us", "ca", "gb").</summary>
+    public string WeatherCountry { get; set; } = "us";
+    public string WeatherCity { get; set; } = "";
+    public string WeatherState { get; set; } = "";
+    /// <summary>The coordinates actually queried. For LatLon mode these are typed in directly; for every other
+    /// mode the provider resolves and overwrites them on each successful lookup, so they always reflect the last
+    /// place weather was actually fetched for (and double as Device mode's last-known device location).</summary>
+    public double WeatherLat { get; set; }
+    public double WeatherLon { get; set; }
+    /// <summary>Resolved display name ("Austin, TX") for whichever mode is active - set after a successful lookup.</summary>
+    public string WeatherResolvedName { get; set; } = "";
+    public bool WeatherFahrenheit { get; set; } = true;
+    public int WeatherPollMinutes { get; set; } = 5;
+    public bool WeatherShowAlerts { get; set; } = true;
     // Theme: "" means inherit GlobalConfig.Theme's background for this one panel.
     public string SectionBgTop { get; set; } = "";
     public string SectionBgBottom { get; set; } = "";
@@ -146,6 +163,10 @@ public sealed class AppConfig
     /// preference (there is deliberately no "Show this panel" checkbox for it in Settings).</summary>
     public static PanelConfig BatteryPanel() => new() { Kind = PanelKind.Battery, Enabled = true, Height = 90, Scale = ScaleMode.Fixed, FixedMax = 100 };
 
+    /// <summary>Disabled until a location is set - this is the app's first feature that makes any outbound
+    /// network call, so it stays opt-in rather than defaulting on with an empty/misconfigured location.</summary>
+    public static PanelConfig WeatherPanel() => new() { Kind = PanelKind.Weather, Enabled = false };
+
     public static AppConfig CreateDefault()
     {
         PanelConfig P(PanelKind k, int h, ScaleMode s, double max = 100, HistoryMode hm = HistoryMode.Average) =>
@@ -163,6 +184,7 @@ public sealed class AppConfig
                 P(PanelKind.Uptime, 0, ScaleMode.Fixed),
                 ClipboardPanel(true),
                 BatteryPanel(),
+                WeatherPanel(),
             }
         };
     }
@@ -214,6 +236,9 @@ public static class ConfigStore
         // Same for Battery - it has no "enabled" preference, only hardware detection, but still needs to exist in
         // the list (for its Settings page and panel order) even for a config saved before it existed.
         if (!cfg.Panels.Any(p => p.Kind == PanelKind.Battery)) cfg.Panels.Add(AppConfig.BatteryPanel());
+        // Weather is new and makes outbound network calls, so an upgraded config gets it disabled (not omitted) -
+        // present in the panel list/Settings so it's discoverable, but never silently starts calling out.
+        if (!cfg.Panels.Any(p => p.Kind == PanelKind.Weather)) cfg.Panels.Add(AppConfig.WeatherPanel());
     }
 
     /// <summary>Atomic save (temp file + replace); UTF-8 without BOM.</summary>

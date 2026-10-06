@@ -100,6 +100,24 @@ static class Program
         if (store.Items.Count > 0) store.TogglePin(store.Items.Last().Id);
     }
 
+    /// <summary>Only used by --demo --shot: a fixed fake forecast (no network call) so the Weather panel - disabled
+    /// by default, since it's the app's only feature needing an outbound call - has something to show headlessly.</summary>
+    static IWeatherProvider DemoWeather()
+    {
+        var snap = new WeatherSnapshot
+        {
+            LocationName = "Austin, TX", TempC = 23, FeelsLikeC = 25, HumidityPct = 54, WindKmh = 14, WindGustKmh = 22,
+            PrecipChance = 20, Condition = WeatherCondition.PartlyCloudy, FetchedAtUtc = DateTime.UtcNow,
+        };
+        var now = DateTime.Now;
+        var hourlyConds = new[] { WeatherCondition.PartlyCloudy, WeatherCondition.Clear, WeatherCondition.Rain, WeatherCondition.Thunderstorm };
+        for (int i = 0; i < 4; i++) snap.Hourly.Add(new WeatherPoint { Time = now.AddHours(2 * i), TempC = 23 - i, TempLowC = double.NaN, PrecipChance = i * 20, Condition = hourlyConds[i] });
+        var dailyConds = new[] { WeatherCondition.Overcast, WeatherCondition.Snow, WeatherCondition.Clear };
+        for (int i = 0; i < 3; i++) snap.Daily.Add(new WeatherPoint { Time = now.AddDays(i + 1), TempC = 20 - i, TempLowC = 10 - i, PrecipChance = i * 15, Condition = dailyConds[i] });
+        snap.Alerts.Add(new WeatherAlert { Event = "Severe Thunderstorm Warning", Severity = "Severe", Headline = "demo alert" });
+        return new FakeWeatherProvider { Snapshot = snap };
+    }
+
     /// <summary>Headless check: render one frame to a PNG (composited over a gradient so the glass is visible) and exit.</summary>
     static int Shot(string cfgPath, string png, bool demo, float scale)
     {
@@ -107,7 +125,9 @@ static class Program
         // This dev machine is a desktop with no real battery; --demo fakes one present so the panel (and its
         // hardware-detection gate) can still be checked headlessly.
         var demoBattery = demo ? new FakeBatteryProvider { Value = new BatteryStatus { Present = true, Charging = false, OnAc = false, Percent = 55, TimeRemaining = TimeSpan.FromHours(1.6) } } : null;
-        using var engine = new Engine(cfg, configPath: cfgPath, battery: demoBattery); using var r = new D2DRenderer(ForceWarp);
+        var demoWeather = demo ? DemoWeather() : null;
+        if (demo && cfg.Panels.FirstOrDefault(x => x.Kind == PanelKind.Weather) is { } wp) { wp.Enabled = true; wp.WeatherResolvedName = "Austin, TX"; }
+        using var engine = new Engine(cfg, configPath: cfgPath, battery: demoBattery, weather: demoWeather); using var r = new D2DRenderer(ForceWarp);
         for (int i = 0; i < 6; i++) { engine.Tick(); Thread.Sleep(cfg.Global.TickMs); }
         if (demo) { engine.DemoFill(); DemoFillClipboard(engine); r.ShowSettingsGear = true; }   // showcase the hover-only Settings gear in demo shots
         r.Resize(cfg.Global.Width, engine.TotalHeight, scale); r.Render(engine, cfg.Global);

@@ -43,6 +43,9 @@ public static class Fmt
         return bps.ToString(bps >= 100 ? "0" : "0.#", CultureInfo.InvariantCulture) + " " + u[i];
     }
     public static string Pct(double v) => v.ToString("0", CultureInfo.InvariantCulture) + "%";
+    public static double CtoF(double c) => c * 9.0 / 5 + 32;
+    public static double KmhToMph(double kmh) => kmh / 1.609344;
+    public static string Temp(double c, bool fahrenheit) => (fahrenheit ? CtoF(c) : c).ToString("0", CultureInfo.InvariantCulture) + "°" + (fahrenheit ? "F" : "C");
     public static string Uptime(TimeSpan t) =>
         t.TotalDays >= 1 ? $"{(int)t.TotalDays}d {t.Hours}h {t.Minutes}m" : $"{t.Hours}h {t.Minutes}m";
 

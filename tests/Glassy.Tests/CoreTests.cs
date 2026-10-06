@@ -472,7 +472,7 @@ public class ColourAndMigrationTests
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, "{ \"Global\": {}, \"Panels\": [ { \"Kind\": \"Cpu\" }, { \"Kind\": \"DiskIo\", \"Enabled\": false }, { \"Kind\": \"DiskSpace\" }, { \"Kind\": \"Uptime\" } ] }");
         var cfg = ConfigStore.Load(path);
-        Assert.Equal(new[] { PanelKind.Cpu, PanelKind.Drives, PanelKind.Uptime, PanelKind.Clipboard, PanelKind.Battery }, cfg.Panels.Select(p => p.Kind));
+        Assert.Equal(new[] { PanelKind.Cpu, PanelKind.Drives, PanelKind.Uptime, PanelKind.Clipboard, PanelKind.Battery, PanelKind.Weather }, cfg.Panels.Select(p => p.Kind));
         Assert.True(cfg.Panels[1].Enabled);                                       // DiskSpace was enabled, so the merged panel is
         Assert.False(File.Exists(path + ".bad"));                                 // migrated, not discarded
     }
@@ -486,6 +486,17 @@ public class ColourAndMigrationTests
         var cfg = ConfigStore.Load(path);
         var battery = cfg.Panels.Single(p => p.Kind == PanelKind.Battery);
         Assert.True(battery.Enabled);
+    }
+
+    [Fact]
+    public void Old_config_that_predates_the_weather_panel_gains_it_disabled()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "glassy-test-" + Guid.NewGuid().ToString("N"), "config.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, "{ \"Global\": {}, \"Panels\": [ { \"Kind\": \"Cpu\" } ] }");
+        var cfg = ConfigStore.Load(path);
+        var w = cfg.Panels.Single(p => p.Kind == PanelKind.Weather);
+        Assert.False(w.Enabled);   // outbound-network feature: present but never silently turned on
     }
 
     [Fact]
@@ -549,5 +560,118 @@ public class BatteryTests
         using var p = new SystemBatteryProvider();
         var s = p.Snapshot;   // this dev machine is a desktop: expected to be null, but must not throw either way
         if (s is { } v) Assert.InRange(v.Percent, 0, 100);
+    }
+}
+
+public class WeatherTests
+{
+    static AppConfig WeatherOnly(WeatherLocationMode mode = WeatherLocationMode.Zip, string zip = "", string city = "", bool alerts = true)
+    {
+        var c = AppConfig.CreateDefault();
+        var p = AppConfig.WeatherPanel();
+        p.Enabled = true; p.WeatherMode = mode; p.WeatherZip = zip; p.WeatherCity = city; p.WeatherShowAlerts = alerts;
+        c.Panels = new List<PanelConfig> { p };
+        return c;
+    }
+
+    [Theory]
+    [InlineData(0, WeatherCondition.Clear)]
+    [InlineData(1, WeatherCondition.Clear)]
+    [InlineData(2, WeatherCondition.PartlyCloudy)]
+    [InlineData(3, WeatherCondition.Overcast)]
+    [InlineData(45, WeatherCondition.Fog)]
+    [InlineData(51, WeatherCondition.Drizzle)]
+    [InlineData(61, WeatherCondition.Rain)]
+    [InlineData(66, WeatherCondition.Sleet)]
+    [InlineData(71, WeatherCondition.Snow)]
+    [InlineData(80, WeatherCondition.RainShowers)]
+    [InlineData(85, WeatherCondition.SnowShowers)]
+    [InlineData(95, WeatherCondition.Thunderstorm)]
+    [InlineData(999, WeatherCondition.Unknown)]
+    public void Wmo_codes_map_to_the_expected_condition(int code, WeatherCondition expected) =>
+        Assert.Equal(expected, WeatherCodes.FromWmo(code));
+
+    [Fact]
+    public void A_query_with_no_location_input_is_not_configured()
+    {
+        Assert.False(new WeatherQuery(WeatherLocationMode.Zip, "", "us", "", "", 0, 0).IsConfigured);
+        Assert.False(new WeatherQuery(WeatherLocationMode.CityState, "", "us", "", "", 0, 0).IsConfigured);
+        Assert.True(new WeatherQuery(WeatherLocationMode.Zip, "78701", "us", "", "", 0, 0).IsConfigured);
+        Assert.True(new WeatherQuery(WeatherLocationMode.CityState, "", "us", "Austin", "TX", 0, 0).IsConfigured);
+        Assert.True(new WeatherQuery(WeatherLocationMode.LatLon, "", "us", "", "", 0, 0).IsConfigured);   // 0,0 is a real coordinate
+        Assert.False(new WeatherQuery(WeatherLocationMode.Device, "", "us", "", "", 0, 0).IsConfigured);  // 0,0 here means "never resolved"
+        Assert.True(new WeatherQuery(WeatherLocationMode.Device, "", "us", "", "", 30.3, -97.7).IsConfigured);
+    }
+
+    [Fact]
+    public void An_unconfigured_panel_never_polls_and_shows_no_snapshot()
+    {
+        var weather = new FakeWeatherProvider();
+        using var e = new Engine(WeatherOnly(), weather: weather);
+        var p = Assert.Single(e.Panels);
+        e.Tick();
+        Assert.Null(p.Weather);
+    }
+
+    [Fact]
+    public void A_configured_panel_reflects_the_providers_snapshot_each_tick()
+    {
+        var snap = new WeatherSnapshot { LocationName = "Austin, TX", TempC = 22, Condition = WeatherCondition.Clear };
+        var weather = new FakeWeatherProvider { Snapshot = snap };
+        using var e = new Engine(WeatherOnly(zip: "78701"), weather: weather);
+        var p = Assert.Single(e.Panels);
+        e.Tick();
+        Assert.Same(snap, p.Weather);
+        Assert.Equal("", p.WeatherError);
+    }
+
+    [Fact]
+    public void A_fetch_error_surfaces_on_the_panel_without_a_snapshot()
+    {
+        var weather = new FakeWeatherProvider { LastError = "no location found for \"Nowhere\"" };
+        using var e = new Engine(WeatherOnly(WeatherLocationMode.CityState, city: "Nowhere"), weather: weather);
+        var p = Assert.Single(e.Panels);
+        e.Tick();
+        Assert.Null(p.Weather);
+        Assert.Contains("Nowhere", p.WeatherError);
+    }
+
+    [Fact]
+    public void Panel_height_grows_when_alerts_are_shown()
+    {
+        using var on = new Engine(WeatherOnly(zip: "78701", alerts: true));
+        using var off = new Engine(WeatherOnly(zip: "78701", alerts: false));
+        Assert.Equal(Engine.WeatherBaseHeight + Engine.WeatherAlertRowH, Assert.Single(on.Panels).Height);
+        Assert.Equal(Engine.WeatherBaseHeight, Assert.Single(off.Panels).Height);
+    }
+
+    [Fact]
+    public void Config_round_trips_through_json_with_the_new_weather_fields()
+    {
+        var cfg = WeatherOnly(WeatherLocationMode.LatLon, alerts: false);
+        var p = cfg.Panels[0];
+        p.WeatherLat = 30.27; p.WeatherLon = -97.74; p.WeatherResolvedName = "Austin, TX"; p.WeatherFahrenheit = false; p.WeatherPollMinutes = 10;
+        var tmp = Path.Combine(Path.GetTempPath(), "gsg-weather-roundtrip-" + Guid.NewGuid() + ".json");
+        try
+        {
+            ConfigStore.Save(cfg, tmp);
+            var loaded = ConfigStore.Load(tmp);
+            var lp = loaded.Panels.Single(x => x.Kind == PanelKind.Weather);
+            Assert.Equal(WeatherLocationMode.LatLon, lp.WeatherMode);
+            Assert.Equal(30.27, lp.WeatherLat); Assert.Equal(-97.74, lp.WeatherLon);
+            Assert.Equal("Austin, TX", lp.WeatherResolvedName);
+            Assert.False(lp.WeatherFahrenheit); Assert.Equal(10, lp.WeatherPollMinutes); Assert.False(lp.WeatherShowAlerts);
+        }
+        finally { File.Delete(tmp); }
+    }
+
+    [Fact]
+    public void An_upgraded_config_without_a_weather_panel_gets_one_added_disabled()
+    {
+        var cfg = AppConfig.CreateDefault();
+        cfg.Panels.RemoveAll(p => p.Kind == PanelKind.Weather);
+        ConfigStore.Migrate(cfg);
+        var p = Assert.Single(cfg.Panels, x => x.Kind == PanelKind.Weather);
+        Assert.False(p.Enabled);   // present (discoverable in Settings), never silently starts calling out
     }
 }

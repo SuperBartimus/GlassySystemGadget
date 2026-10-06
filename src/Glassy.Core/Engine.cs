@@ -22,6 +22,10 @@ public sealed class PanelRuntime
     /// <summary>Uptime panel only: current uptime as a fraction of the all-time record (0-1), for the small bar.</summary>
     public double UptimeFraction = 1;
     public bool UptimeIsRecord;
+    /// <summary>Weather panel only: null until the first successful fetch, or whenever the location isn't configured.</summary>
+    public WeatherSnapshot Weather;
+    public string WeatherError = "";
+    public bool WeatherRefreshing;
     internal string TimingKey = "";
     public bool IsSeries => Source != null;
 }
@@ -34,6 +38,9 @@ public sealed class Engine : IDisposable
     public const float GearSize = 24, GearMargin = 6;
     public const float ClipHeader = 26, ClipIcon = 16, ClipIconTopPad = 3, ClipMinHeight = 90;
     public const float UptimeHeight = 54;
+    /// <summary>Title + current-conditions + 4-point hourly row + 3-day row. AlertRowH is only added to the
+    /// panel's total height when the setting is on - it isn't reserved space that sits empty otherwise.</summary>
+    public const float WeatherBaseHeight = 155, WeatherAlertRowH = 16;
     /// <summary>Row layout, top to bottom: the icon strip (badge + type/age text + open/pin/delete, ClipIconTopPad
     /// to ClipBodyTop), then the wrapped-text/file-list/image body (ClipLineH per line, or an image's scaled
     /// height), then ClipBodyBottomPad. Rows are variable height - a short clip takes less space, a long one grows
@@ -53,23 +60,26 @@ public sealed class Engine : IDisposable
     IVolumeProvider volumes; readonly bool ownsVolumes;
     INetProvider net; readonly bool ownsNet;
     IBatteryProvider battery; readonly bool ownsBattery;
+    IWeatherProvider weather; readonly bool ownsWeather;
     DriveActivityHub activity;
     ProcessSampler procs;
     readonly ClipboardStore clipboard;
     readonly double initialUptimeRecordSeconds;
     string layoutSig = "";
     long lastProc, lastSlow;
+    bool weatherForceRefresh;
 
     /// <summary>The Clipboard folder that belongs next to a given config.json - so a test or a --config override
     /// gets its own isolated clipboard history instead of silently sharing the real one in %AppData%.</summary>
     public static string ClipboardDirFor(string configPath) => Path.Combine(Path.GetDirectoryName(configPath)!, "Clipboard");
     public static string DefaultClipboardDir => ClipboardDirFor(ConfigStore.DefaultPath);
 
-    public Engine(AppConfig cfg, IVolumeProvider volumes = null, INetProvider net = null, ClipboardStore clipboard = null, string configPath = null, IBatteryProvider battery = null)
+    public Engine(AppConfig cfg, IVolumeProvider volumes = null, INetProvider net = null, ClipboardStore clipboard = null, string configPath = null, IBatteryProvider battery = null, IWeatherProvider weather = null)
     {
         this.volumes = volumes; ownsVolumes = volumes == null;
         this.net = net; ownsNet = net == null;
         this.battery = battery; ownsBattery = battery == null;
+        this.weather = weather; ownsWeather = weather == null;
         this.clipboard = clipboard ?? new ClipboardStore(ClipboardDirFor(configPath ?? ConfigStore.DefaultPath));
         initialUptimeRecordSeconds = cfg.Global.UptimeRecordSeconds;   // captured once, before this session's own ticks can raise it, so "new record" means genuinely new
         Apply(cfg);
@@ -78,7 +88,11 @@ public sealed class Engine : IDisposable
     IVolumeProvider Volumes => volumes ??= new VolumeWatcher();
     INetProvider Net => net ??= new NetHub();
     IBatteryProvider Battery => battery ??= new SystemBatteryProvider();
+    IWeatherProvider Weather => weather ??= new OpenMeteoWeatherProvider();
     DriveActivityHub Activity => activity ??= new DriveActivityHub();
+    /// <summary>Bypasses the poll interval on the next Tick - Settings' manual "Refresh now" button and a fresh
+    /// device-location resolution both call this.</summary>
+    public void RequestWeatherRefresh() => weatherForceRefresh = true;
     /// <summary>The clipboard history store; App reads/mutates it directly (add on capture, delete/pin/search from the UI).</summary>
     public ClipboardStore Clipboard => clipboard;
 
@@ -211,6 +225,7 @@ public sealed class Engine : IDisposable
         else if (kind == PanelKind.TopProcesses) rt.Height = Header + pc.Count * RowProc + 6;
         else if (kind == PanelKind.Clipboard) rt.Height = Math.Max(ClipMinHeight, pc.Height);
         else if (kind == PanelKind.Uptime) rt.Height = UptimeHeight;   // title + record/since line + a small bar
+        else if (kind == PanelKind.Weather) rt.Height = WeatherBaseHeight + (pc.WeatherShowAlerts ? WeatherAlertRowH : 0);
         else rt.Height = 28;
     }
 
@@ -249,7 +264,15 @@ public sealed class Engine : IDisposable
                     + "   Since " + boot.ToString("MMM d, h:mm tt");
                 p.UptimeFraction = Config.Global.UptimeRecordSeconds > 0 ? Math.Clamp(up.TotalSeconds / Config.Global.UptimeRecordSeconds, 0, 1) : 1;
             }
+            else if (p.Cfg.Kind == PanelKind.Weather)
+            {
+                var pc = p.Cfg;
+                var q = new WeatherQuery(pc.WeatherMode, pc.WeatherZip, pc.WeatherCountry, pc.WeatherCity, pc.WeatherState, pc.WeatherLat, pc.WeatherLon);
+                Weather.Poll(q, TimeSpan.FromMinutes(Math.Max(1, pc.WeatherPollMinutes)), weatherForceRefresh);
+                p.Weather = Weather.Snapshot; p.WeatherError = Weather.LastError ?? ""; p.WeatherRefreshing = Weather.Refreshing;
+            }
         }
+        weatherForceRefresh = false;
         if (doProc) lastProc = now; if (doSlow) lastSlow = now;
     }
 
@@ -305,5 +328,6 @@ public sealed class Engine : IDisposable
         if (ownsVolumes) volumes?.Dispose();
         if (ownsNet) net?.Dispose();
         if (ownsBattery) battery?.Dispose();
+        if (ownsWeather) weather?.Dispose();
     }
 }

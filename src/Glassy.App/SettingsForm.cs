@@ -10,12 +10,13 @@ public sealed class SettingsForm : Form
     static readonly Color Bg = Color.FromArgb(28, 20, 40), Bg2 = Color.FromArgb(42, 31, 60), Fg = Color.FromArgb(235, 225, 250), Dim = Color.FromArgb(170, 155, 195);
     readonly AppConfig cfg; readonly Engine engine; readonly Action changed;
     readonly ListBox nav = new(); readonly Panel host = new();
-    static readonly PanelKind[] Kinds = { PanelKind.Cpu, PanelKind.Ram, PanelKind.Gpu, PanelKind.Network, PanelKind.Drives, PanelKind.TopProcesses, PanelKind.Uptime, PanelKind.Clipboard, PanelKind.Battery };
+    static readonly PanelKind[] Kinds = { PanelKind.Cpu, PanelKind.Ram, PanelKind.Gpu, PanelKind.Network, PanelKind.Drives, PanelKind.TopProcesses, PanelKind.Uptime, PanelKind.Clipboard, PanelKind.Battery, PanelKind.Weather };
 
     static string PageName(PanelKind k) => k switch
     {
         PanelKind.Cpu => "CPU", PanelKind.Ram => "Memory", PanelKind.Gpu => "GPU", PanelKind.Network => "Network",
-        PanelKind.Drives => "Drives", PanelKind.TopProcesses => "Top processes", PanelKind.Clipboard => "Clipboard", PanelKind.Battery => "Battery", _ => "Uptime",
+        PanelKind.Drives => "Drives", PanelKind.TopProcesses => "Top processes", PanelKind.Clipboard => "Clipboard", PanelKind.Battery => "Battery",
+        PanelKind.Weather => "Weather", _ => "Uptime",
     };
 
     public SettingsForm(AppConfig cfg, Engine engine, Action changed)
@@ -331,6 +332,7 @@ public sealed class SettingsForm : Form
         if (kind == PanelKind.Network) stack.Controls.Add(NetworkExtras(p));
         if (kind == PanelKind.Drives) stack.Controls.Add(DrivesExtras(p));
         if (kind == PanelKind.Clipboard) stack.Controls.Add(ClipboardExtras(p));
+        if (kind == PanelKind.Weather) stack.Controls.Add(WeatherExtras(p));
         stack.Controls.Add(t);
         stack.Controls.Add(Heading(PageName(kind)));
         return stack;
@@ -424,6 +426,69 @@ public sealed class SettingsForm : Form
         box.Controls.Add(clearRow);
         box.Controls.Add(new Label { Text = "History", AutoSize = true, Font = new Font("Segoe UI", 10.5f, FontStyle.Bold), Dock = DockStyle.Top, Padding = new Padding(0, 4, 0, 2) });
         return box;
+    }
+
+    enum Units { Fahrenheit, Celsius }
+
+    TextBox Field(string text, Action<string> set)
+    {
+        var tb = new TextBox { Text = text, Width = 160, BackColor = Bg2, ForeColor = Fg, BorderStyle = BorderStyle.FixedSingle };
+        tb.Leave += (_, _) => { set(tb.Text); changed(); };
+        return tb;
+    }
+
+    Control WeatherExtras(PanelConfig p)
+    {
+        var box = new Panel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(18, 4, 18, 8) };
+        void Reload() { changed(); ShowPage(nav.SelectedIndex); }
+
+        var t = Table();
+        Row(t, "Location method", Combo(p.WeatherMode, v => { p.WeatherMode = v; Reload(); }));
+        if (p.WeatherMode == WeatherLocationMode.Zip)
+        {
+            Row(t, "Zip / postal code", Field(p.WeatherZip, v => p.WeatherZip = v.Trim()));
+            Row(t, "Country code (2-letter)", Field(p.WeatherCountry, v => p.WeatherCountry = v.Trim().ToLowerInvariant()));
+        }
+        else if (p.WeatherMode == WeatherLocationMode.CityState)
+        {
+            Row(t, "City", Field(p.WeatherCity, v => p.WeatherCity = v.Trim()));
+            Row(t, "State / region", Field(p.WeatherState, v => p.WeatherState = v.Trim()));
+        }
+        else if (p.WeatherMode == WeatherLocationMode.LatLon)
+        {
+            Row(t, "Latitude", Num(-90, 90, (decimal)p.WeatherLat, 4, 0.1m, v => p.WeatherLat = (double)v));
+            Row(t, "Longitude", Num(-180, 180, (decimal)p.WeatherLon, 4, 0.1m, v => p.WeatherLon = (double)v));
+        }
+        else
+        {
+            Row(t, "", Note(p.WeatherResolvedName != "" ? $"Last resolved: {p.WeatherResolvedName} ({p.WeatherLat:0.###}, {p.WeatherLon:0.###})" : "Not resolved yet - click below."));
+            Row(t, "", Btn("Use my current location (Windows Location)", () => UseDeviceLocation(p, Reload)));
+        }
+        Row(t, "Units", Combo(p.WeatherFahrenheit ? Units.Fahrenheit : Units.Celsius, v => p.WeatherFahrenheit = v == Units.Fahrenheit));
+        Row(t, "Refresh every (minutes)", Num(1, 180, p.WeatherPollMinutes, 0, 1, v => p.WeatherPollMinutes = (int)v));
+        Row(t, "", Chk("Show severe weather alerts (US only)", p.WeatherShowAlerts, v => { p.WeatherShowAlerts = v; Reload(); }));
+        Row(t, "", Btn("Refresh now", () => engine.RequestWeatherRefresh()));
+
+        box.Controls.Add(t);
+        box.Controls.Add(Note("Fetches from Open-Meteo (forecast + City/State geocoding) and Zippopotam.us (postal " +
+            "code lookup) - both free, keyless public APIs. US locations additionally check api.weather.gov for " +
+            "active alerts (no equivalent free feed exists elsewhere, so alerts are always empty outside the US). " +
+            "Only the location set here, or its resolved coordinates, is ever sent."));
+        box.Controls.Add(new Label { Text = "Location", AutoSize = true, Font = new Font("Segoe UI", 10.5f, FontStyle.Bold), Dock = DockStyle.Top, Padding = new Padding(0, 4, 0, 2) });
+        return box;
+    }
+
+    async void UseDeviceLocation(PanelConfig p, Action reload)
+    {
+        var result = await DeviceLocation.TryGetAsync();
+        if (result == null)
+        {
+            MessageBox.Show(this, "Could not get the device's location. Check Windows Settings > Privacy > Location (location services, and permission for this app, must both be on).", "Location unavailable", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        p.WeatherLat = result.Value.lat; p.WeatherLon = result.Value.lon; p.WeatherResolvedName = "Current location";
+        engine.RequestWeatherRefresh();
+        reload();
     }
 
     Control LineButtons(PanelConfig p)

@@ -45,6 +45,15 @@ Panels (each its own graph group, reorderable, individually switchable):
   shows each path word-wrapped on its own lines with a small tinted type
   glyph, using the row's full width; an image shows an actual scaled
   thumbnail.
+- Weather (disabled by default - see Network use below): current conditions
+  (temperature, feels-like, humidity, wind/gust, precipitation chance),
+  a 4-point hourly forecast (2-hour steps) and a 3-day forecast underneath
+  it, plus active severe-weather alerts (US only). Drawn vector icons for
+  clear/partly cloudy/overcast/fog/drizzle/rain/sleet/snow/thunderstorm -
+  no OS icon interop, same as every other glyph in the app. Set a location
+  by zip/postal code, city/state, latitude/longitude, or Windows' own
+  device location; Fahrenheit or Celsius; polls every 1-180 minutes (5 by
+  default) plus a manual "Refresh now" button on its Settings page.
 
 Memory, GPU, Network and the drive graphs carry a tiny legend of the lines that
 are switched on (network and drives include the current values).
@@ -52,6 +61,25 @@ are switched on (network and drives include the current values).
 Each graph is split into a history side (coarse buckets, average or peak) and a
 live side (default 0.5 s per pixel). Live seconds, history hours and the split
 are set per graph, and every line has its own colour, width, glow and fill.
+
+## Network use
+
+Every panel except Weather works entirely offline. Weather is off by
+default and, once you set a location, makes outbound HTTPS calls (every
+1-180 minutes, or on a manual refresh) to three free, keyless public APIs:
+
+- [Open-Meteo](https://open-meteo.com) - the forecast itself, and
+  geocoding for City/State lookups.
+- [Zippopotam.us](https://www.zippopotam.us) - postal code lookups.
+- [api.weather.gov](https://www.weather.gov/documentation/services-web-api)
+  (NWS) - active severe-weather alerts, US locations only (no equivalent
+  free feed exists elsewhere, so Alerts is always empty outside the US).
+
+Only the location you set (zip/city/state, or the latitude/longitude
+resolved from it, Windows' device location, or coordinates you type in
+directly) is ever sent - no other data leaves the machine. "Use my current
+location" calls Windows' own Geolocation API, which shows the normal
+Windows location-permission prompt the first time.
 
 ## Install (PowerShell one-liner)
 
@@ -83,7 +111,7 @@ Start it with no console window by double-clicking `Glassy System Gadget.lnk`
 also works but leaves a console window open:
 
 ```powershell
-dotnet GlassySystemGadget\src\Glassy.App\bin\Release\net8.0-windows\Glassy.App.dll
+dotnet GlassySystemGadget\src\Glassy.App\bin\Release\net8.0-windows10.0.19041.0\Glassy.App.dll
 ```
 
 The app is not shipped as an .exe on purpose: Defender ASR on this machine blocks
@@ -119,7 +147,9 @@ for Settings, Lock position, Reset position and Exit.
   pick), restore-last-item-on-startup, whether the search box starts open,
   scroll bar width (0 hides it), and a "clear history (keep pinned)" button;
   Battery adds only which side its glyph sits on (no show/hide - see Known
-  limits).
+  limits); Weather adds location method (zip, city/state, lat/lon, or
+  device location) and its fields, units, refresh interval, a "show
+  alerts" toggle, and a manual refresh button.
 - About: version, author and a link back to this repo.
 - Changing a graph's durations or split restarts that graph's history.
 
@@ -129,21 +159,22 @@ for Settings, Lock position, Reset position and Exit.
 dotnet test GlassySystemGadget\tests\Glassy.Tests -c Release
 ```
 
-92 tests: ring/bucket maths, config round trip (incl. the theme colours and
+115 tests: ring/bucket maths, config round trip (incl. the theme colours and
 per-panel background override), theme preset validity, corrupt-file recovery and
-migration (of the old disk panels, and to add the Clipboard and Battery panels
-to a config that predates them), the raw NtQuerySystemInformation offsets
-(checked against this process, including a buffer-growth regression this
+migration (of the old disk panels, and to add the Clipboard, Battery and
+Weather panels to a config that predates them), the raw NtQuerySystemInformation
+offsets (checked against this process, including a buffer-growth regression this
 fixed), real CPU, RAM, drive, network and GPU sampling, autostart launcher
 quoting, the load and discharge colour ramps, clipboard classification and
 storage (dedup, pin, trim, search, blob round trip - synthetic clipboard data
 only, plus one real OS-clipboard round trip on its own STA thread that saves
 and restores whatever was actually on the clipboard), the clipboard row/icon
 hit-test math over variable row heights (mutation-tested), the scroll-to-
-selection and scrollbar geometry, and the engine's handling of drives,
-adapters, the clipboard store and the battery (a fake provider, since the dev
-machine is a desktop with none) all appearing and changing live. Headless
-checks of the app itself:
+selection and scrollbar geometry, the WMO-weather-code-to-icon mapping, a
+weather location query's "is this actually configured" logic, and the
+engine's handling of drives, adapters, the clipboard store, the battery and
+weather (fake providers - no real network call in any test) all appearing and
+changing live. Headless checks of the app itself:
 
 ```powershell
 dotnet ...\Glassy.App.dll --config $env:TEMP\t.json --shot out.png --demo   # render one frame to PNG
@@ -202,6 +233,15 @@ not touched.
   Windows reports no time-to-full while charging, so that estimate is computed
   here from the current charge rate and will be rough (or absent, on hardware
   that doesn't report a rate) rather than exact.
+- Weather: icons are static vectors, not animated (a deliberate first-round
+  scoping choice). "Cloudy" and "overcast" share one icon/label, since
+  Open-Meteo's weather codes don't distinguish them. Severe-weather alerts
+  are US-only (see Network use). Device location is resolved once per click
+  of "Use my current location," not re-resolved automatically - a desktop's
+  location essentially never changes session to session. The real
+  Open-Meteo/Zippopotam.us/NWS fetch path, and the real Windows Geolocation
+  prompt, have not been exercised live (tested headlessly with a fake
+  provider and a fixed demo forecast only - `--shot --demo`).
 
 ## License
 

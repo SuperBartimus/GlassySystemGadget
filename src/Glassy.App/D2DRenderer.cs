@@ -23,7 +23,7 @@ public sealed class D2DRenderer : IDisposable
 {
     readonly ID3D11Device d3d; readonly ID2D1Factory1 factory; readonly ID2D1Device dev; readonly ID2D1DeviceContext dc;
     readonly ID2D1Effect blur; readonly IDWriteFactory dw;
-    readonly IDWriteTextFormat fTitle, fBody, fBodyR, fSmall, fSmallR, fTag, fWrap, fCenter;
+    readonly IDWriteTextFormat fTitle, fBody, fBodyR, fSmall, fSmallR, fTag, fWrap, fCenter, fWeatherTemp, fWeatherCenter;
     readonly Dictionary<string, float> widths = new();
     // Clipboard row content cache, keyed by ClipItem.Id (items are immutable once captured, so the cache never
     // goes stale except on a width/line-cap change, when the whole cache is cleared). Pruned each render pass to
@@ -99,6 +99,8 @@ public sealed class D2DRenderer : IDisposable
         fWrap.WordWrapping = WordWrapping.Wrap;
         fWrap.SetTrimming(new Trimming { Granularity = TrimmingGranularity.Character }, dw.CreateEllipsisTrimmingSign(fWrap));
         fCenter = F(8.5f, FontWeight.Bold, TextAlignment.Center);
+        fWeatherTemp = F(16f, FontWeight.Bold, TextAlignment.Leading);
+        fWeatherCenter = F(8.5f, FontWeight.Normal, TextAlignment.Center); fWeatherCenter.WordWrapping = WordWrapping.NoWrap;
         roundStroke = factory.CreateStrokeStyle(new StrokeStyleProperties { LineJoin = LineJoin.Round, StartCap = CapStyle.Round, EndCap = CapStyle.Round });
         dashStroke = factory.CreateStrokeStyle(new StrokeStyleProperties { DashStyle = DashStyle.Dash });
     }
@@ -311,6 +313,7 @@ public sealed class D2DRenderer : IDisposable
         if (p.Cfg.Kind == PanelKind.Drives) { DriveContent(p, W, l, r, t, txt, dim); return; }
         if (p.Cfg.Kind == PanelKind.Clipboard) { ClipboardContent(p, W, e, l, r, t, txt, dim); return; }
         if (p.Cfg.Kind == PanelKind.Battery) { BatteryContent(p, W, l, r, t, txt, dim); return; }
+        if (p.Cfg.Kind == PanelKind.Weather) { WeatherContent(p, l, r, t, txt, dim); return; }
         switch (p.Cfg.Kind)
         {
             case PanelKind.Uptime:
@@ -438,6 +441,167 @@ public sealed class D2DRenderer : IDisposable
         if (fillH > 1)
             dc.FillRoundedRectangle(new RoundedRectangle(new RawRectF(x + pad, y + h - pad - fillH, x + w - pad, y + h - pad), 2.5f, 2.5f), Br(fillCol, 0.85f));
         Text($"{percent:0}%", fCenter, x, (bodyTop + y + h) / 2 - 6, x + w, (bodyTop + y + h) / 2 + 8, txt);
+    }
+
+    // ------------------------------------------------------------ Weather panel
+    static readonly (byte r, byte g, byte b) WeatherSun = (255, 196, 64), WeatherCloud = (190, 200, 220), WeatherRainCol = (100, 170, 255), WeatherSnowCol = (225, 235, 250);
+    static readonly (byte r, byte g, byte b) WeatherAlertCol = (255, 90, 90);
+
+    void WeatherContent(PanelRuntime p, float l, float r, float t, ID2D1Brush txt, ID2D1Brush dim)
+    {
+        var pc = p.Cfg; var w = p.Weather;
+        Text("Weather", fTitle, l, t + 4, l + 90, t + 20, txt);
+        string loc = pc.WeatherResolvedName != "" ? pc.WeatherResolvedName : (w?.LocationName ?? "");
+        Text(p.WeatherRefreshing ? "Updating..." : loc, fSmallR, l + 70, t + 7, r, t + 20, dim);
+
+        if (w == null)
+        {
+            bool configured = new WeatherQuery(pc.WeatherMode, pc.WeatherZip, pc.WeatherCountry, pc.WeatherCity, pc.WeatherState, pc.WeatherLat, pc.WeatherLon).IsConfigured;
+            string msg = configured
+                ? (p.WeatherError != "" ? "Couldn't fetch weather: " + p.WeatherError : "Fetching weather...")
+                : "Set a location on this panel's Settings page.";
+            Text(msg, fBody, l, t + 30, r, t + 60, dim);
+            return;
+        }
+
+        float cy = t + 24;
+        DrawWeatherIcon(l + 2, cy, 34, w.Condition, dim);
+        Text(Fmt.Temp(w.TempC, pc.WeatherFahrenheit), fWeatherTemp, l + 42, cy - 2, l + 110, cy + 22, txt);
+        Text(WeatherCodes.Label(w.Condition), fSmall, l + 42, cy + 20, l + 150, cy + 32, dim);
+        string feels = $"Feels {Fmt.Temp(w.FeelsLikeC, pc.WeatherFahrenheit)}   {w.HumidityPct:0}% humidity";
+        string wind = $"Wind {(pc.WeatherFahrenheit ? Fmt.KmhToMph(w.WindKmh) : w.WindKmh):0} {(pc.WeatherFahrenheit ? "mph" : "km/h")}" +
+            (w.WindGustKmh > w.WindKmh * 1.15 ? $" (gust {(pc.WeatherFahrenheit ? Fmt.KmhToMph(w.WindGustKmh) : w.WindGustKmh):0})" : "");
+        Text(feels, fSmallR, l + 42, cy - 2, r, cy + 10, dim);
+        Text(wind, fSmallR, l + 42, cy + 10, r, cy + 22, dim);
+        if (w.PrecipChance > 0) Text($"{w.PrecipChance:0}% precip", fSmallR, l + 42, cy + 22, r, cy + 34, Br(WeatherRainCol, 0.9f));
+
+        float y = t + 62;
+        if (pc.WeatherShowAlerts)
+        {
+            if (w.Alerts.Count > 0)
+            {
+                var a = w.Alerts[0];
+                string tail = w.Alerts.Count > 1 ? $" (+{w.Alerts.Count - 1} more)" : "";
+                dc.FillRoundedRectangle(new RoundedRectangle(new RawRectF(l, y, r, y + 14), 3, 3), Br(WeatherAlertCol, 0.18f));
+                Text("⚠ " + a.Event + tail, fSmall, l + 4, y, r - 4, y + 14, Br(WeatherAlertCol, 0.95f));
+            }
+            y += Engine.WeatherAlertRowH;
+        }
+
+        float colW = (r - l) / 4f;
+        for (int i = 0; i < w.Hourly.Count && i < 4; i++)
+        {
+            var hp = w.Hourly[i]; float cx = l + colW * i + colW / 2;
+            Text(hp.Time.ToString("h tt", CultureInfo.InvariantCulture), fWeatherCenter, cx - colW / 2, y, cx + colW / 2, y + 11, dim);
+            DrawWeatherIcon(cx - 9, y + 11, 18, hp.Condition, txt);
+            Text(Fmt.Temp(hp.TempC, pc.WeatherFahrenheit), fWeatherCenter, cx - colW / 2, y + 30, cx + colW / 2, y + 41, txt);
+        }
+        y += 47;
+
+        float dColW = (r - l) / 3f;
+        for (int i = 0; i < w.Daily.Count && i < 3; i++)
+        {
+            var dp = w.Daily[i]; float cx = l + dColW * i + dColW / 2;
+            Text(dp.Time.ToString("ddd", CultureInfo.InvariantCulture), fWeatherCenter, cx - dColW / 2, y, cx + dColW / 2, y + 11, dim);
+            DrawWeatherIcon(cx - 9, y + 11, 18, dp.Condition, txt);
+            string hilo = $"{Fmt.Temp(dp.TempC, pc.WeatherFahrenheit)}/{Fmt.Temp(dp.TempLowC, pc.WeatherFahrenheit)}";
+            Text(hilo, fWeatherCenter, cx - dColW / 2, y + 30, cx + dColW / 2, y + 41, txt);
+        }
+    }
+
+    /// <summary>Drawn vector weather glyphs - no bitmap/icon interop, matching every other icon in the app. A sun
+    /// (filled circle + rays), a cloud (two overlapping rounded blobs), and small accents (drops, flakes, a
+    /// lightning zigzag) compose into each of the WeatherCondition values. Static for now; a slow per-frame time
+    /// offset could animate the accents later without changing this shape vocabulary.</summary>
+    void DrawWeatherIcon(float x, float y, float size, WeatherCondition cond, ID2D1Brush dimTxt)
+    {
+        float s = size;
+        void Sun(float cx, float cy, float rad)
+        {
+            var br = Br(WeatherSun);
+            for (int i = 0; i < 8; i++)
+            {
+                double a = i * Math.PI / 4;
+                var p0 = new Vector2(cx + (float)Math.Cos(a) * (rad + 1), cy + (float)Math.Sin(a) * (rad + 1));
+                var p1 = new Vector2(cx + (float)Math.Cos(a) * (rad + 4), cy + (float)Math.Sin(a) * (rad + 4));
+                dc.DrawLine(p0, p1, br, 1.4f, roundStroke);
+            }
+            dc.FillEllipse(new Ellipse(new Vector2(cx, cy), rad, rad), br);
+        }
+        void Cloud(float cx, float cy, float w, ID2D1Brush br)
+        {
+            dc.FillEllipse(new Ellipse(new Vector2(cx - w * 0.22f, cy + w * 0.06f), w * 0.26f, w * 0.22f), br);
+            dc.FillEllipse(new Ellipse(new Vector2(cx + w * 0.12f, cy - w * 0.04f), w * 0.32f, w * 0.28f), br);
+            dc.FillRoundedRectangle(new RoundedRectangle(new RawRectF(cx - w * 0.42f, cy, cx + w * 0.42f, cy + w * 0.22f), w * 0.1f, w * 0.1f), br);
+        }
+        var cloudBr = Br(WeatherCloud, 0.9f);
+        switch (cond)
+        {
+            case WeatherCondition.Clear: Sun(x + s / 2, y + s / 2, s * 0.3f); break;
+            case WeatherCondition.PartlyCloudy:
+                Sun(x + s * 0.32f, y + s * 0.32f, s * 0.2f);
+                Cloud(x + s * 0.58f, y + s * 0.62f, s * 0.72f, cloudBr);
+                break;
+            case WeatherCondition.Fog:
+                Cloud(x + s / 2, y + s * 0.42f, s * 0.8f, Br(WeatherCloud, 0.55f));
+                for (int i = 0; i < 3; i++) dc.DrawLine(new Vector2(x + s * 0.1f, y + s * 0.72f + i * 4), new Vector2(x + s * 0.9f, y + s * 0.72f + i * 4), dimTxt, 1.1f);
+                break;
+            case WeatherCondition.Drizzle: case WeatherCondition.Rain: case WeatherCondition.RainShowers:
+                Cloud(x + s / 2, y + s * 0.4f, s * 0.84f, cloudBr);
+                DrawDrops(x, y, s, cond == WeatherCondition.Drizzle ? 2 : 3);
+                break;
+            case WeatherCondition.Sleet:
+                Cloud(x + s / 2, y + s * 0.4f, s * 0.84f, cloudBr);
+                DrawDrops(x, y, s, 2); DrawFlakes(x, y, s, 1);
+                break;
+            case WeatherCondition.Snow: case WeatherCondition.SnowShowers:
+                Cloud(x + s / 2, y + s * 0.4f, s * 0.84f, cloudBr);
+                DrawFlakes(x, y, s, cond == WeatherCondition.Snow ? 2 : 3);
+                break;
+            case WeatherCondition.Thunderstorm:
+                Cloud(x + s / 2, y + s * 0.38f, s * 0.84f, Br(WeatherCloud, 0.7f));
+                DrawBolt(x + s * 0.5f, y + s * 0.6f, s * 0.32f);
+                break;
+            case WeatherCondition.Overcast: default:
+                Cloud(x + s * 0.4f, y + s * 0.42f, s * 0.7f, Br(WeatherCloud, 0.55f));
+                Cloud(x + s * 0.6f, y + s * 0.56f, s * 0.78f, cloudBr);
+                break;
+        }
+    }
+    void DrawDrops(float x, float y, float s, int n)
+    {
+        var br = Br(WeatherRainCol, 0.9f);
+        for (int i = 0; i < n; i++)
+        {
+            float dx = x + s * (0.3f + 0.22f * i), dy0 = y + s * 0.78f;
+            dc.DrawLine(new Vector2(dx, dy0), new Vector2(dx - s * 0.06f, dy0 + s * 0.16f), br, 1.4f, roundStroke);
+        }
+    }
+    void DrawFlakes(float x, float y, float s, int n)
+    {
+        var br = Br(WeatherSnowCol, 0.95f);
+        for (int i = 0; i < n; i++)
+        {
+            var c = new Vector2(x + s * (0.32f + 0.2f * i), y + s * 0.84f); float rr = s * 0.07f;
+            dc.DrawLine(new Vector2(c.X - rr, c.Y), new Vector2(c.X + rr, c.Y), br, 1.1f);
+            dc.DrawLine(new Vector2(c.X, c.Y - rr), new Vector2(c.X, c.Y + rr), br, 1.1f);
+            dc.DrawLine(new Vector2(c.X - rr * 0.7f, c.Y - rr * 0.7f), new Vector2(c.X + rr * 0.7f, c.Y + rr * 0.7f), br, 1.1f);
+            dc.DrawLine(new Vector2(c.X - rr * 0.7f, c.Y + rr * 0.7f), new Vector2(c.X + rr * 0.7f, c.Y - rr * 0.7f), br, 1.1f);
+        }
+    }
+    void DrawBolt(float cx, float cy, float h)
+    {
+        var br = Br(255, 221, 87, 0.95f);
+        using var geo = factory.CreatePathGeometry();
+        using (var sink = geo.Open())
+        {
+            sink.BeginFigure(new Vector2(cx + h * 0.15f, cy - h), FigureBegin.Hollow);
+            sink.AddLine(new Vector2(cx - h * 0.25f, cy + h * 0.1f));
+            sink.AddLine(new Vector2(cx + h * 0.05f, cy + h * 0.1f));
+            sink.AddLine(new Vector2(cx - h * 0.15f, cy + h));
+            sink.EndFigure(FigureEnd.Open); sink.Close();
+        }
+        dc.DrawGeometry(geo, br, 1.6f, roundStroke);
     }
 
     // ------------------------------------------------------------ Clipboard panel
@@ -830,7 +994,8 @@ public sealed class D2DRenderer : IDisposable
         foreach (var b in clipImageCache.Values) b?.Dispose();
         foreach (var fr in clipFilesCache.Values) foreach (var (layout, _) in fr.Shown) layout.Dispose();
         target?.Dispose(); glowSrc?.Dispose(); staging?.Dispose(); blur.Dispose();
-        fTitle.Dispose(); fBody.Dispose(); fBodyR.Dispose(); fSmall.Dispose(); fSmallR.Dispose(); fTag.Dispose(); fWrap.Dispose(); fCenter.Dispose(); roundStroke.Dispose(); dashStroke.Dispose();
+        fTitle.Dispose(); fBody.Dispose(); fBodyR.Dispose(); fSmall.Dispose(); fSmallR.Dispose(); fTag.Dispose(); fWrap.Dispose(); fCenter.Dispose();
+        fWeatherTemp.Dispose(); fWeatherCenter.Dispose(); roundStroke.Dispose(); dashStroke.Dispose();
         dw.Dispose(); dc.Dispose(); dev.Dispose(); factory.Dispose(); d3d.Dispose();
     }
 }
