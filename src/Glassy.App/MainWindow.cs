@@ -14,6 +14,11 @@ public sealed class MainWindow : Form
     D2DRenderer renderer;                        // null until created; dropped and rebuilt after a GPU device loss
     int pxW, pxH, failStreak, seenLayout; bool presentLogged;
     readonly System.Windows.Forms.Timer timer = new(), saveTimer = new() { Interval = 800 }, trimTimer = new() { Interval = 30000 };
+    /// <summary>Redraws only (no engine.Tick - no fresh CPU/GPU/network sampling) at a faster, fixed cadence than
+    /// the user's own update interval, so the Weather panel's idle icon animation (sun twinkle, drifting cloud,
+    /// falling rain/snow, lightning flash) looks smooth even when TickMs is set high. Only runs while a Weather
+    /// panel is actually enabled - see ApplyAll - so it costs nothing for anyone not using the panel.</summary>
+    readonly System.Windows.Forms.Timer weatherAnimTimer = new() { Interval = 120 };
     // Bounded retries for a clipboard update that came back empty: rdpclip.exe (RDP's clipboard bridge) can
     // advertise a format as present via delayed rendering before it has actually fetched the bytes across the RDP
     // channel yet - GetData() then returns nothing (not a string, not bytes, no exception) until that render
@@ -68,6 +73,7 @@ public sealed class MainWindow : Form
         saveTimer.Tick += (_, _) => { saveTimer.Stop(); Save(); };
         trimTimer.Tick += (_, _) => { if (cfg.Global.TrimMemory) TrimMemory(); };
         clipRetryTimer.Tick += (_, _) => { clipRetryTimer.Stop(); TryCaptureClipboard(); };
+        weatherAnimTimer.Tick += (_, _) => RenderFrame();
         SystemEvents.SessionSwitch += OnSession;
 
         clipSearch.TextChanged += (_, _) => { clipScroll = 0; RenderFrame(); };
@@ -111,6 +117,7 @@ public sealed class MainWindow : Form
         ApplyPriority(g);
         engine.Apply(cfg);
         timer.Interval = Math.Clamp(g.TickMs, 100, 5000);
+        weatherAnimTimer.Enabled = cfg.Panels.Any(p => p.Kind == PanelKind.Weather && p.Enabled);
         seenLayout = engine.LayoutVersion; SetSize();
         var ex = GetWindowLongPtr(Handle, GWL_EXSTYLE).ToInt64();
         ex = g.ClickThrough ? ex | WS_EX_TRANSPARENT : ex & ~(long)WS_EX_TRANSPARENT;
@@ -451,7 +458,7 @@ public sealed class MainWindow : Form
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
-        timer.Stop(); trimTimer.Stop(); saveTimer.Stop(); SystemEvents.SessionSwitch -= OnSession;
+        timer.Stop(); trimTimer.Stop(); saveTimer.Stop(); weatherAnimTimer.Stop(); SystemEvents.SessionSwitch -= OnSession;
         if (barRegistered) RemoveBar();
         Save(); settings?.Close();
         base.OnFormClosing(e);
@@ -459,7 +466,7 @@ public sealed class MainWindow : Form
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { renderer?.Dispose(); engine.Dispose(); timer.Dispose(); saveTimer.Dispose(); trimTimer.Dispose(); clipRetryTimer.Dispose(); menu.Dispose(); clipWatcher?.Dispose(); }
+        if (disposing) { renderer?.Dispose(); engine.Dispose(); timer.Dispose(); saveTimer.Dispose(); trimTimer.Dispose(); clipRetryTimer.Dispose(); weatherAnimTimer.Dispose(); menu.Dispose(); clipWatcher?.Dispose(); }
         if (dib != IntPtr.Zero) DeleteObject(dib);
         if (memDc != IntPtr.Zero) DeleteDC(memDc);
         if (screenDc != IntPtr.Zero) ReleaseDC(IntPtr.Zero, screenDc);

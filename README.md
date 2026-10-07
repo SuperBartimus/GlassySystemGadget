@@ -48,9 +48,11 @@ Panels (each its own graph group, reorderable, individually switchable):
 - Weather (disabled by default - see Network use below): current conditions
   (temperature, feels-like, humidity, wind/gust, precipitation chance),
   a 4-point hourly forecast (2-hour steps) and a 3-day forecast underneath
-  it, plus active severe-weather alerts (US only). Drawn vector icons for
-  clear/partly cloudy/overcast/fog/drizzle/rain/sleet/snow/thunderstorm -
-  no OS icon interop, same as every other glyph in the app. Set a location
+  it, plus active severe-weather alerts (US only). Animated drawn vector
+  icons (twinkling/rotating sun, drifting clouds, falling rain/snow, a
+  strobing lightning bolt) for clear/partly cloudy/overcast/fog/drizzle/
+  rain/sleet/snow/thunderstorm - no OS icon interop, same as every other
+  glyph in the app. Set a location
   by zip/postal code, city/state, latitude/longitude, or Windows' own
   device location; Fahrenheit or Celsius; polls every 1-180 minutes (5 by
   default) plus a manual "Refresh now" button on its Settings page.
@@ -233,15 +235,18 @@ not touched.
   Windows reports no time-to-full while charging, so that estimate is computed
   here from the current charge rate and will be rough (or absent, on hardware
   that doesn't report a rate) rather than exact.
-- Weather: icons are static vectors, not animated (a deliberate first-round
-  scoping choice). "Cloudy" and "overcast" share one icon/label, since
-  Open-Meteo's weather codes don't distinguish them. Severe-weather alerts
-  are US-only (see Network use). Device location is resolved once per click
-  of "Use my current location," not re-resolved automatically - a desktop's
-  location essentially never changes session to session. The real
-  Open-Meteo/Zippopotam.us/NWS fetch path, and the real Windows Geolocation
-  prompt, have not been exercised live (tested headlessly with a fake
-  provider and a fixed demo forecast only - `--shot --demo`).
+- Weather: icons animate idly (sun twinkle/slow rotation, drifting clouds,
+  falling rain/snow, a strobing lightning bolt) on a dedicated redraw-only
+  timer (120ms, no extra sampling) so the motion stays smooth regardless of
+  the main update interval - it only runs while a Weather panel is actually
+  enabled. "Cloudy" and "overcast" share one icon/label, since Open-Meteo's
+  weather codes don't distinguish them. Severe-weather alerts are US-only
+  (see Network use). Device location is resolved once per click of "Use my
+  current location," not re-resolved automatically - a desktop's location
+  essentially never changes session to session. The real Open-Meteo /
+  Zippopotam.us / NWS fetch path has been exercised live successfully
+  (zip lookup -> geocode -> forecast -> alerts, end to end); the real
+  Windows Geolocation permission prompt has not been.
 
 ## License
 

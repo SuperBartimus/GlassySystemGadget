@@ -45,6 +45,10 @@ public sealed class D2DRenderer : IDisposable
     public int PxW { get; private set; }
     public int PxH { get; private set; }
     float scale = 1, wDip, hDip;
+    /// <summary>Wall-clock seconds, refreshed once per Render() - drives the Weather icons' idle animation
+    /// (sun twinkle, cloud drift, falling rain/snow, lightning flash). Not frame-count based, so motion speed
+    /// stays correct regardless of how often Render() actually gets called.</summary>
+    float animT;
 
     // Transient per-frame UI state the Clipboard panel needs but Engine/PanelRuntime deliberately don't carry
     // (scroll position and the search box are interaction state owned by MainWindow, not data).
@@ -145,6 +149,7 @@ public sealed class D2DRenderer : IDisposable
     public void Render(Engine e, GlobalConfig g)
     {
         float W = g.Width; float op = (float)Math.Clamp(g.Opacity, 0.2, 1.0);
+        animT = Environment.TickCount64 / 1000f;
         TitleCol = Hex(g.Theme.Text); borderCol = Hex(g.Theme.Border);
         themeBgTop = Hex(g.Theme.BackgroundTop); themeBgBottom = Hex(g.Theme.BackgroundBottom);
         var geos = new List<LineGeo>();
@@ -513,6 +518,11 @@ public sealed class D2DRenderer : IDisposable
     /// (filled circle + rays), a cloud (two overlapping rounded blobs), and small accents (drops, flakes, a
     /// lightning zigzag) compose into each of the WeatherCondition values. Static for now; a slow per-frame time
     /// offset could animate the accents later without changing this shape vocabulary.</summary>
+    static float Frac(float v) => v - MathF.Floor(v);
+
+    /// <summary>Static shapes composed with time-driven parameters - each helper reads the shared `animT` clock
+    /// (refreshed once per Render(), see the field comment) rather than taking a time parameter, so call sites
+    /// below stay exactly as they were before animation existed.</summary>
     void DrawWeatherIcon(float x, float y, float size, WeatherCondition cond, ID2D1Brush dimTxt)
     {
         float s = size;
@@ -521,15 +531,17 @@ public sealed class D2DRenderer : IDisposable
             var br = Br(WeatherSun);
             for (int i = 0; i < 8; i++)
             {
-                double a = i * Math.PI / 4;
+                double a = i * Math.PI / 4 + animT * 0.2;                              // slow rotation
+                float wob = 2.5f + 1.5f * MathF.Sin(animT * 2f + i * 1.3f);            // per-ray twinkle
                 var p0 = new Vector2(cx + (float)Math.Cos(a) * (rad + 1), cy + (float)Math.Sin(a) * (rad + 1));
-                var p1 = new Vector2(cx + (float)Math.Cos(a) * (rad + 4), cy + (float)Math.Sin(a) * (rad + 4));
+                var p1 = new Vector2(cx + (float)Math.Cos(a) * (rad + 1 + wob), cy + (float)Math.Sin(a) * (rad + 1 + wob));
                 dc.DrawLine(p0, p1, br, 1.4f, roundStroke);
             }
             dc.FillEllipse(new Ellipse(new Vector2(cx, cy), rad, rad), br);
         }
         void Cloud(float cx, float cy, float w, ID2D1Brush br)
         {
+            cx += MathF.Sin(animT * 0.5f + cx * 0.07f) * w * 0.035f;                   // gentle drift, phase seeded by position so stacked clouds don't move in lockstep
             dc.FillEllipse(new Ellipse(new Vector2(cx - w * 0.22f, cy + w * 0.06f), w * 0.26f, w * 0.22f), br);
             dc.FillEllipse(new Ellipse(new Vector2(cx + w * 0.12f, cy - w * 0.04f), w * 0.32f, w * 0.28f), br);
             dc.FillRoundedRectangle(new RoundedRectangle(new RawRectF(cx - w * 0.42f, cy, cx + w * 0.42f, cy + w * 0.22f), w * 0.1f, w * 0.1f), br);
@@ -568,30 +580,42 @@ public sealed class D2DRenderer : IDisposable
                 break;
         }
     }
+    /// <summary>Each drop loops top-to-bottom on its own phase (offset by index so they don't fall in unison),
+    /// fading in and out with a sine envelope rather than popping at the loop seam.</summary>
     void DrawDrops(float x, float y, float s, int n)
     {
-        var br = Br(WeatherRainCol, 0.9f);
+        float topY = y + s * 0.58f, botY = y + s * 0.92f;
         for (int i = 0; i < n; i++)
         {
-            float dx = x + s * (0.3f + 0.22f * i), dy0 = y + s * 0.78f;
-            dc.DrawLine(new Vector2(dx, dy0), new Vector2(dx - s * 0.06f, dy0 + s * 0.16f), br, 1.4f, roundStroke);
+            float phase = Frac(animT * 1.1f + i * 0.37f);
+            float dx = x + s * (0.3f + 0.22f * i), dy = topY + (botY - topY) * phase;
+            float alpha = MathF.Sin(phase * MathF.PI);
+            dc.DrawLine(new Vector2(dx, dy), new Vector2(dx - s * 0.05f, dy + s * 0.12f), Br(WeatherRainCol, 0.15f + 0.8f * alpha), 1.4f, roundStroke);
         }
     }
+    /// <summary>Same falling/fading idea as DrawDrops, plus a slow side-to-side sway per flake.</summary>
     void DrawFlakes(float x, float y, float s, int n)
     {
-        var br = Br(WeatherSnowCol, 0.95f);
+        float topY = y + s * 0.56f, botY = y + s * 0.96f;
         for (int i = 0; i < n; i++)
         {
-            var c = new Vector2(x + s * (0.32f + 0.2f * i), y + s * 0.84f); float rr = s * 0.07f;
-            dc.DrawLine(new Vector2(c.X - rr, c.Y), new Vector2(c.X + rr, c.Y), br, 1.1f);
-            dc.DrawLine(new Vector2(c.X, c.Y - rr), new Vector2(c.X, c.Y + rr), br, 1.1f);
-            dc.DrawLine(new Vector2(c.X - rr * 0.7f, c.Y - rr * 0.7f), new Vector2(c.X + rr * 0.7f, c.Y + rr * 0.7f), br, 1.1f);
-            dc.DrawLine(new Vector2(c.X - rr * 0.7f, c.Y + rr * 0.7f), new Vector2(c.X + rr * 0.7f, c.Y - rr * 0.7f), br, 1.1f);
+            float phase = Frac(animT * 0.35f + i * 0.4f);
+            float baseX = x + s * (0.32f + 0.2f * i);
+            float cx = baseX + MathF.Sin(animT * 1.6f + i * 2f) * s * 0.05f, cy = topY + (botY - topY) * phase;
+            float alpha = MathF.Sin(phase * MathF.PI);
+            var br = Br(WeatherSnowCol, 0.2f + 0.75f * alpha); float rr = s * 0.07f;
+            dc.DrawLine(new Vector2(cx - rr, cy), new Vector2(cx + rr, cy), br, 1.1f);
+            dc.DrawLine(new Vector2(cx, cy - rr), new Vector2(cx, cy + rr), br, 1.1f);
+            dc.DrawLine(new Vector2(cx - rr * 0.7f, cy - rr * 0.7f), new Vector2(cx + rr * 0.7f, cy + rr * 0.7f), br, 1.1f);
+            dc.DrawLine(new Vector2(cx - rr * 0.7f, cy + rr * 0.7f), new Vector2(cx + rr * 0.7f, cy - rr * 0.7f), br, 1.1f);
         }
     }
+    /// <summary>Mostly dim, strobes bright on a loop - a lightning flash rather than a static glyph.</summary>
     void DrawBolt(float cx, float cy, float h)
     {
-        var br = Br(255, 221, 87, 0.95f);
+        float cycle = Frac(animT * 0.4f);
+        float flash = cycle < 0.12f ? 1f : cycle < 0.22f ? 0.55f : 0.22f;
+        var br = Br(255, 221, 87, flash);
         using var geo = factory.CreatePathGeometry();
         using (var sink = geo.Open())
         {
