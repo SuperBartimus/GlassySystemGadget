@@ -18,14 +18,23 @@ namespace Glassy.App;
 public sealed class ClipboardWatcher : IDisposable
 {
     readonly IntPtr hwnd;
-    // Remembers dedup keys we ourselves just wrote to the OS clipboard, each for a short window, so the resulting
-    // WM_CLIPBOARDUPDATE isn't re-captured as a new item. A single one-shot flag isn't enough for two reasons seen
-    // with scroll-driven selection: (1) Clipboard.SetDataObject(data, true) (the "keep after app exits" flush) can
-    // fire more than one WM_CLIPBOARDUPDATE for the same write, and (2) fast scrolling calls this repeatedly before
-    // earlier echoes have arrived, so whichever echo shows up must match the write that produced it, not just the
-    // most recent write. A short per-key time window handles any echo count and any amount of overlap; genuinely
-    // new content (a different dedup key) is never held back by it.
-    readonly List<(string key, long atMs)> recentWrites = new();
+    // Remembers when we ourselves last wrote to the OS clipboard (restoring a scroll/click-selected history item),
+    // each for a short window, so the resulting WM_CLIPBOARDUPDATE isn't re-captured as a "new" item and bumped to
+    // the top of history. A single one-shot flag isn't enough for two reasons seen with scroll-driven selection:
+    // (1) Clipboard.SetDataObject(data, true) (the "keep after app exits" flush) can fire more than one
+    // WM_CLIPBOARDUPDATE for the same write, and (2) fast scrolling calls this repeatedly before earlier echoes
+    // have arrived. A short time window (not a content match - see below) handles any echo count and overlap.
+    //
+    // This used to match by dedup key (re-classify the echoed clipboard content and compare its hash to the key of
+    // the item we just wrote), on the theory that only an exact content match could be "our" echo. That broke in
+    // practice (2026-10-07, Bart: scrolling kept duplicating the selected item at the top instead of leaving it in
+    // place): restoring a clip doesn't guarantee the OS clipboard echo is byte-identical to the stored content - an
+    // Image round-trips through Clipboard.SetDataObject -> CF_DIB, which can flatten alpha or otherwise re-encode
+    // the pixels, so the re-classified PNG hash differs from the original and the "own write" goes undetected. A
+    // plain time window after a write we know we just made is simpler and doesn't depend on the echo matching
+    // anything - the only cost is a genuine, unrelated external copy landing in the same ~0.5s immediately after a
+    // restore would also be swallowed, which is an acceptable trade against a feature that reliably broke before.
+    readonly List<long> recentWriteTimesMs = new();
     const int EchoWindowMs = 500;
 
     public ClipboardWatcher(IntPtr hwnd)
@@ -50,7 +59,7 @@ public sealed class ClipboardWatcher : IDisposable
                 AppLog.Write("clipboard update seen but not classified; formats: " + formats);
                 return false;
             }
-            if (IsRecentOwnWrite(candidate.Item.DedupKey)) return false;
+            if (IsRecentOwnWrite()) return false;
             return engine.Clipboard.Add(candidate, cfg.ClipMaxItems);
         }
         // Another app has the clipboard open right now; logged rather than silently dropped, since a capture that
@@ -162,11 +171,11 @@ public sealed class ClipboardWatcher : IDisposable
         return files;
     }
 
-    bool IsRecentOwnWrite(string dedupKey)
+    bool IsRecentOwnWrite()
     {
         long now = Environment.TickCount64;
-        recentWrites.RemoveAll(w => now - w.atMs > EchoWindowMs);
-        return recentWrites.Any(w => w.key == dedupKey);
+        recentWriteTimesMs.RemoveAll(t => now - t > EchoWindowMs);
+        return recentWriteTimesMs.Count > 0;
     }
 
     public void RestoreToClipboard(ClipItem item, ClipboardStore store)
@@ -202,9 +211,9 @@ public sealed class ClipboardWatcher : IDisposable
                     data.SetData("Preferred DropEffect", new MemoryStream(BitConverter.GetBytes(effect)));
                     break;
             }
-            recentWrites.Add((item.DedupKey, Environment.TickCount64));
+            long writeAt = Environment.TickCount64; recentWriteTimesMs.Add(writeAt);
             try { System.Windows.Forms.Clipboard.SetDataObject(data, true); store.SelectedId = item.Id; }
-            catch (ExternalException) { recentWrites.RemoveAll(w => w.key == item.DedupKey); }   // clipboard busy; leave it as it was rather than half-write
+            catch (ExternalException) { recentWriteTimesMs.Remove(writeAt); }   // clipboard busy; leave it as it was rather than half-write
         }
         finally { img?.Dispose(); imgStream?.Dispose(); }
     }
