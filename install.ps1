@@ -33,7 +33,11 @@ function Install-DotNet8DesktopRuntime {
     if (-not $winget) {
         throw 'winget was not found. Install the .NET 8 Desktop Runtime manually (https://dotnet.microsoft.com/download/dotnet/8.0) and re-run this script.'
     }
-    & winget.exe install --id Microsoft.DotNet.DesktopRuntime.8 -e --accept-package-agreements --accept-source-agreements
+    # --source winget pins the result to the winget community source. Without it, a fresh Windows install (where
+    # the msstore source also carries a matching package and neither source's index has been queried yet) can
+    # make winget see the package ID as ambiguous across sources and refuse to install, demanding --source rather
+    # than picking one - confirmed on a brand-new out-of-box machine, 2026-10-13.
+    & winget.exe install --id Microsoft.DotNet.DesktopRuntime.8 -e --source winget --accept-package-agreements --accept-source-agreements
     if ($LASTEXITCODE -ne 0) { throw "winget exited with code $LASTEXITCODE installing the .NET 8 Desktop Runtime." }
 }
 
