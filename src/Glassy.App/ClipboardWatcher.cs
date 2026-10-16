@@ -43,8 +43,8 @@ public sealed class ClipboardWatcher : IDisposable
         Win32.AddClipboardFormatListener(hwnd);
     }
 
-    /// <summary>Call from WndProc on WM_CLIPBOARDUPDATE. Returns true if a new item was actually captured (worth a sound/re-render).</summary>
-    public bool OnClipboardUpdate(Engine engine, PanelConfig cfg)
+    /// <summary>Call from WndProc on WM_CLIPBOARDUPDATE. Added = a genuinely new item (worth a sound and a jump to the top); Existing = content already in history, now selected in place; Ignored = nothing to do.</summary>
+    public ClipAddResult OnClipboardUpdate(Engine engine, PanelConfig cfg)
     {
         try
         {
@@ -57,14 +57,14 @@ public sealed class ClipboardWatcher : IDisposable
                 // never arrived, as opposed to arriving with formats GSG doesn't recognize (listed here if so).
                 string formats = data != null ? string.Join(",", data.GetFormats()) : "(clipboard could not be opened)";
                 AppLog.Write("clipboard update seen but not classified; formats: " + formats);
-                return false;
+                return ClipAddResult.Ignored;
             }
-            if (IsRecentOwnWrite()) return false;
+            if (IsRecentOwnWrite()) return ClipAddResult.Ignored;
             return engine.Clipboard.Add(candidate, cfg.ClipMaxItems);
         }
         // Another app has the clipboard open right now; logged rather than silently dropped, since a capture that
         // never happens and never says why is unfalsifiable. COMException derives from ExternalException.
-        catch (ExternalException ex) { AppLog.Write("clipboard capture skipped: " + ex.Message); return false; }
+        catch (ExternalException ex) { AppLog.Write("clipboard capture skipped: " + ex.Message); return ClipAddResult.Ignored; }
     }
 
     /// <summary>Reads the clipboard via raw Win32 calls (OpenClipboard/GetClipboardData/GlobalLock), bypassing

@@ -4,6 +4,8 @@ using System.Text.Json.Serialization;
 
 namespace Glassy.Core;
 
+public enum ClipAddResult { Ignored, Added, Existing }
+
 /// <summary>
 /// Persisted clipboard history: newest first, JSON index plus one blob file per RichText/Image item.
 /// Pure storage logic (dedup, trim, pin, search, delete) - no OS clipboard access, so it is fully unit-testable.
@@ -27,13 +29,16 @@ public sealed class ClipboardStore
     string BlobDir => Path.Combine(dir, "blobs");
     string BlobPath(string fileName) => Path.Combine(BlobDir, fileName);
 
-    /// <summary>Adds a classified candidate, deduping by content and trimming to maxItems (pinned items are exempt). Returns true if it changed anything worth a re-render/sound.</summary>
-    public bool Add(ClipboardClassifier.Candidate candidate, int maxItems)
+    /// <summary>Adds a classified candidate, trimming to maxItems (pinned items are exempt). Content already in
+    /// history is never moved or duplicated - it just becomes the selected item, so the caller can scroll to it.
+    /// (It used to be bumped to the top; with two GSG instances bridged by RDP clipboard sync, every scroll-restore
+    /// on one side arrives on the other as a re-copy, and the bumping reshuffled history mid-scroll - Bart, 2026-10-16.)</summary>
+    public ClipAddResult Add(ClipboardClassifier.Candidate candidate, int maxItems)
     {
-        if (candidate?.Item == null) return false;
+        if (candidate?.Item == null) return ClipAddResult.Ignored;
         var item = candidate.Item;
         var dup = Items.FirstOrDefault(i => i.DedupKey == item.DedupKey);
-        if (dup != null) { Items.Remove(dup); item.Pinned = dup.Pinned; DeleteBlob(dup); }   // same content again: replace, keep its pin
+        if (dup != null) { SelectedId = dup.Id; return ClipAddResult.Existing; }
 
         if (candidate.Blob != null)
         {
@@ -47,7 +52,7 @@ public sealed class ClipboardStore
         Trim(maxItems);
         Save();
         SelectedId = item.Id;
-        return true;
+        return ClipAddResult.Added;
     }
 
     void Trim(int maxItems)

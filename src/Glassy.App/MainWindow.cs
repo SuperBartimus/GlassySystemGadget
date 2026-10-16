@@ -292,6 +292,13 @@ public sealed class MainWindow : Form
         RenderFrame();
     }
 
+    void ScrollToSelected()
+    {
+        var panel = engine.Panels.FirstOrDefault(p => p.Cfg.Kind == PanelKind.Clipboard); if (panel == null) return;
+        var (items, heights) = ClipRows();
+        clipScroll = ClipboardLayout.ScrollToShow(IndexOfSelected(items), panel.Height, clipSearchVisible, heights, clipScroll);
+    }
+
     int IndexOfSelected(IReadOnlyList<ClipItem> items)
     {
         string id = engine.Clipboard.SelectedId;
@@ -395,10 +402,14 @@ public sealed class MainWindow : Form
     void TryCaptureClipboard()
     {
         var clipCfg = ClipConfig(); if (clipCfg == null || clipWatcher == null) return;
-        // A genuinely new item always lands at the top of the (newest-first) list, so jump the view there too -
-        // otherwise a capture while scrolled down would highlight a selection row the user can't see.
-        if (clipWatcher.OnClipboardUpdate(engine, clipCfg)) { clipScroll = 0; ClipboardWatcher.PlaySound(clipCfg); RenderFrame(); }
-        else if (clipRetryCount < ClipRetryMax) { clipRetryCount++; clipRetryTimer.Stop(); clipRetryTimer.Start(); }
+        switch (clipWatcher.OnClipboardUpdate(engine, clipCfg))
+        {
+            // A genuinely new item lands at the top of the (newest-first) list, so jump the view there too.
+            case ClipAddResult.Added: clipScroll = 0; ClipboardWatcher.PlaySound(clipCfg); RenderFrame(); break;
+            // Content already in history stays where it is; just bring its row into view.
+            case ClipAddResult.Existing: ScrollToSelected(); RenderFrame(); break;
+            default: if (clipRetryCount < ClipRetryMax) { clipRetryCount++; clipRetryTimer.Stop(); clipRetryTimer.Start(); } break;
+        }
     }
 
     void PositionClipSearch()

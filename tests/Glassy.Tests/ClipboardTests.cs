@@ -158,15 +158,29 @@ public class ClipboardStoreTests
     }
 
     [Fact]
-    public void Recopying_the_same_text_moves_it_to_the_top_and_keeps_its_pin_instead_of_duplicating()
+    public void Recopying_existing_content_selects_it_in_place_without_moving_or_duplicating_anything()
     {
         var store = new ClipboardStore(TmpDir());
-        store.Add(Text("a"), 50); store.Add(Text("b"), 50);
-        store.TogglePin(store.Items.First(i => i.Preview == "a").Id);
-        store.Add(Text("a"), 50);   // "a" copied again
-        Assert.Equal(2, store.Items.Count);                 // not 3 - replaced, not duplicated
-        Assert.Equal("a", store.Items[0].Preview);           // bumped to the top
-        Assert.True(store.Items[0].Pinned);                  // pin carried forward
+        store.Add(Text("a"), 50); store.Add(Text("b"), 50); store.Add(Text("c"), 50);   // newest first: c, b, a
+        var b = store.Items[1];
+        store.TogglePin(b.Id);
+        var before = store.Items.Select(i => i.Id).ToList();
+
+        var result = store.Add(Text("b"), 50);   // "b" copied again (e.g. arriving from the other side of an RDP session)
+
+        Assert.Equal(ClipAddResult.Existing, result);
+        Assert.Equal(before, store.Items.Select(i => i.Id));   // same items, same order - nothing bumped to the top
+        Assert.Equal(b.Id, store.SelectedId);                   // the existing row is now the selected one
+        Assert.True(store.Items[1].Pinned);                     // untouched
+    }
+
+    [Fact]
+    public void New_content_still_goes_to_the_top()
+    {
+        var store = new ClipboardStore(TmpDir());
+        store.Add(Text("a"), 50);
+        Assert.Equal(ClipAddResult.Added, store.Add(Text("b"), 50));
+        Assert.Equal("b", store.Items[0].Preview);
     }
 
     [Fact]

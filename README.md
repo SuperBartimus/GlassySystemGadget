@@ -161,7 +161,7 @@ for Settings, Lock position, Reset position and Exit.
 dotnet test GlassySystemGadget\tests\Glassy.Tests -c Release
 ```
 
-115 tests: ring/bucket maths, config round trip (incl. the theme colours and
+116 tests: ring/bucket maths, config round trip (incl. the theme colours and
 per-panel background override), theme preset validity, corrupt-file recovery and
 migration (of the old disk panels, and to add the Clipboard, Battery and
 Weather panels to a config that predates them), the raw NtQuerySystemInformation
