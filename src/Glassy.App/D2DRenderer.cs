@@ -386,7 +386,7 @@ public sealed class D2DRenderer : IDisposable
                 };
                 bool on = tone == VmTone.Running;
                 Dot(l, y, on ? LineColour(p, src, vm.Name, toneCol) : toneCol);
-                Text(row.Text, fBody, l + 12, y, r - 150, y + 15, on ? txt : dim);
+                Text(row.Text, fBody, l + 12, y, on ? r - 150 : r - 56, y + 15, on ? txt : dim);   // stopped VMs have no CPU/memory columns, so the name gets their room
                 if (on && !double.IsNaN(vm.CpuPct)) Text(Fmt.Pct(vm.CpuPct), fBodyR, r - 150, y, r - 110, y + 15, txt);
                 if (on && !double.IsNaN(vm.MemoryMB)) Text(Fmt.Bytes(vm.MemoryMB * 1024 * 1024), fSmallR, r - 110, y + 2, r - 56, y + 15, dim);
                 string last = on ? (vm.Uptime is { } up ? Fmt.Uptime(up).Split(' ').Take(2).Aggregate((a, b) => a + " " + b) : "") : label;

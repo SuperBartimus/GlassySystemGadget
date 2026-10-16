@@ -66,6 +66,11 @@ public static class HyperVFormat
         return i > 0 ? instance.Substring(0, i) : "";
     }
 
+    /// <summary>The name a VM goes by in counter instance names: PDH rewrites "(" ")" as "[" "]" and "#" "/" "\" as "_",
+    /// so "Helvm (Ubuntu)" is "Helvm [Ubuntu]" there and would never match the WMI name as-is.</summary>
+    public static string CounterName(string vm) =>
+        vm.Replace('(', '[').Replace(')', ']').Replace('#', '_').Replace('/', '_').Replace('\\', '_');
+
     /// <summary>Merges the WMI VM list (null when denied) with the per-VM counters. Without WMI the list is just the
     /// VMs the counters report, i.e. the running ones.</summary>
     public static HyperVStatus Merge(List<(string Name, int State, double UptimeMs)> wmi, string wmiError, Dictionary<string, double> vpRun, Dictionary<string, double> memMB, double hostCpu)
@@ -77,8 +82,8 @@ public static class HyperVFormat
         if (wmi != null)
         {
             s.FullList = true;
-            s.Vms = wmi.Select(v => new HyperVVm(v.Name, v.State, v.State == 2 ? cpu.GetValueOrDefault(v.Name, double.NaN) : double.NaN,
-                v.State == 2 ? memMB.GetValueOrDefault(v.Name, double.NaN) : double.NaN, v.UptimeMs > 0 ? TimeSpan.FromMilliseconds(v.UptimeMs) : null)).ToList();
+            s.Vms = wmi.Select(v => new HyperVVm(v.Name, v.State, v.State == 2 ? cpu.GetValueOrDefault(CounterName(v.Name), double.NaN) : double.NaN,
+                v.State == 2 ? memMB.GetValueOrDefault(CounterName(v.Name), double.NaN) : double.NaN, v.UptimeMs > 0 ? TimeSpan.FromMilliseconds(v.UptimeMs) : null)).ToList();
         }
         else
         {

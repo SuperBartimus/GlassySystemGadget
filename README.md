@@ -110,7 +110,9 @@ irm https://raw.githubusercontent.com/SuperBartimus/GlassySystemGadget/main/inst
 
 Installs to `%LocalAppData%\GlassySystemGadget`. Nothing is added to PATH,
 nothing needs admin rights (the .NET runtime install may prompt once via
-`winget`). See `install.ps1` for what it does before running it.
+`winget`). The launcher calls `dotnet.exe` by its full path, so it works
+even when .NET was installed after you logged in. See `install.ps1` for what
+it does before running it.
 
 ## Build from source
 
@@ -179,14 +181,14 @@ for Settings, Lock position, Reset position and Exit.
 dotnet test GlassySystemGadget\tests\Glassy.Tests -c Release
 ```
 
-137 tests: ring/bucket maths, config round trip (incl. the theme colours and
+138 tests: ring/bucket maths, config round trip (incl. the theme colours and
 per-panel background override), theme preset validity, corrupt-file recovery and
 migration (of the old disk panels, and to add the Clipboard, Battery,
 Weather, IIS and Hyper-V panels to a config that predates them; a config from a newer
 version loses only the panels this one doesn't know), IIS and Hyper-V role
 detection, row layout, pool and VM states, per-site/per-VM lines (a new one
 keeps the others' history, a custom colour survives a restart, duplicate VM
-names), merging the WMI VM list with the counters (and falling back without
+names, names the counters spell differently), merging the WMI VM list with the counters (and falling back without
 WMI), a real wildcard performance-counter read and a real WMI query, the raw NtQuerySystemInformation
 offsets (checked against this process, including a buffer-growth regression this
 fixed), real CPU, RAM, drive, network and GPU sampling, autostart launcher
@@ -270,21 +272,21 @@ not touched.
   Zippopotam.us / NWS fetch path has been exercised live successfully
   (zip lookup -> geocode -> forecast -> alerts, end to end); the real
   Windows Geolocation permission prompt has not been.
-- IIS: built and tested without an IIS server (fake provider in tests and
-  `--shot --demo`; the counter-reading code itself is exercised against
-  `\Processor(*)`). The real "Web Service" / "APP_POOL_WAS" counters are
-  unverified until it runs on an actual IIS box; if they can't be read, the
-  panel says so and `glassy.log` records the PDH error code. Which sites
-  appear (started only, or every configured site) is whatever IIS's own
-  counters report. Confirmed working on a real IIS server (v0.7.0).
-- Hyper-V: built and tested without a Hyper-V host, the same way (fake
-  provider; the WMI plumbing is exercised against `Win32_Process`). The real
-  `Msvm_ComputerSystem` query and the "Hyper-V Hypervisor Virtual
-  Processor" / "Hyper-V Dynamic Memory VM" / "Hyper-V Hypervisor Logical
-  Processor" counters are unverified until it runs on an actual host;
-  failures are logged to `glassy.log` with their error codes. VM CPU is the
-  average of the VM's own virtual processors (not a share of the host),
-  so a VM with 4 processors pegging one reads 25%.
+- IIS: confirmed on a real IIS server (v0.7.0, per-site lines v0.8.0). The
+  tests use a fake provider; the counter-reading code is also exercised
+  against `\Processor(*)`. If the "Web Service" / "APP_POOL_WAS" counters
+  can't be read, the panel says so and `glassy.log` records the PDH error
+  code. Which sites appear (started only, or every configured site) is
+  whatever IIS's own counters report.
+- Hyper-V: the WMI VM list, states, uptime and host CPU are confirmed on a
+  real host (v0.8.0). Per-VM CPU and memory for VMs whose names contain
+  `(`, `)`, `#`, `/` or `\` could not be matched in v0.8.0 (performance counters
+  rename those characters) and are fixed in v0.8.1, not yet re-checked on
+  a host. Memory comes from the "Hyper-V Dynamic Memory VM" counters, so a
+  VM with static memory may show none. VM CPU is the average of the VM's
+  own virtual processors (not a share of the host), so a VM with 4
+  processors pegging one reads 25%. Failures are logged to `glassy.log`
+  with their error codes.
 
 ## License
 

@@ -18,9 +18,22 @@ $RepoOwner  = 'SuperBartimus'
 $RepoName   = 'GlassySystemGadget'
 $InstallDir = Join-Path $env:LocalAppData 'GlassySystemGadget'
 
+function Get-DotNetPath {
+    # Prefer the standard install location over PATH: a runtime installed after login (or by winget earlier in this
+    # same script) is not on the PATH that Explorer, wscript or this process inherited, and a bare "dotnet.exe" then
+    # silently fails to launch from the hidden Startup shortcut - seen on one server, 2026-10-16.
+    $standard = Join-Path $env:ProgramFiles 'dotnet\dotnet.exe'
+    if (Test-Path $standard) { return $standard }
+    $cmd = Get-Command dotnet.exe -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    return $null
+}
+
 function Test-DotNet8DesktopRuntime {
+    $dotnet = Get-DotNetPath
+    if (-not $dotnet) { return $false }
     try {
-        $runtimes = & dotnet --list-runtimes 2>$null
+        $runtimes = & $dotnet --list-runtimes 2>$null
     } catch {
         return $false
     }
@@ -62,8 +75,10 @@ function Get-LatestReleaseZipUrl {
 function New-HiddenStartupShortcut {
     param([Parameter(Mandatory)][string] $InstallDir)
 
+    $dotnet = Get-DotNetPath
+    if (-not $dotnet) { throw 'dotnet.exe was not found after installing the .NET 8 Desktop Runtime.' }
     $vbsPath = Join-Path $InstallDir 'Glassy.vbs'
-    $vbsContent = 'CreateObject("Wscript.Shell").Run "dotnet.exe ""' + (Join-Path $InstallDir 'Glassy.App.dll') + '""", 0, False'
+    $vbsContent = 'CreateObject("Wscript.Shell").Run """' + $dotnet + '"" ""' + (Join-Path $InstallDir 'Glassy.App.dll') + '""", 0, False'
     [System.IO.File]::WriteAllText($vbsPath, $vbsContent, (New-Object System.Text.UTF8Encoding($false)))
 
     $startupDir = [Environment]::GetFolderPath('Startup')

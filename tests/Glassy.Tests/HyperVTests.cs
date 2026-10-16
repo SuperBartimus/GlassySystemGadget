@@ -47,6 +47,15 @@ public class HyperVTests
     }
 
     [Fact]
+    public void A_VM_name_with_parentheses_still_matches_its_counters()
+    {
+        var wmi = new List<(string, int, double)> { ("Helvm (Ubuntu) #2", 2, 0) };
+        var vp = new Dictionary<string, double> { ["Helvm [Ubuntu] _2:Hv VP 0"] = 40 };
+        var vm = HyperVFormat.Merge(wmi, "", vp, new Dictionary<string, double> { ["Helvm [Ubuntu] _2"] = 2048 }, 10).Vms.Single();
+        Assert.Equal(40, vm.CpuPct); Assert.Equal(2048, vm.MemoryMB);
+    }
+
+    [Fact]
     public void Without_WMI_the_running_VMs_still_come_from_the_counters_and_the_row_list_says_why_others_are_missing()
     {
         var vp = new Dictionary<string, double> { ["web01:Hv VP 0"] = 12 };
