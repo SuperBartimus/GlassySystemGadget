@@ -72,5 +72,8 @@ internal static class Native
     [DllImport("pdh.dll")] public static extern uint PdhGetFormattedCounterValue(IntPtr counter, uint format, out uint type, out PdhDouble value);
     [DllImport("pdh.dll")] public static extern uint PdhCloseQuery(IntPtr query);
     [DllImport("pdh.dll")] public static extern uint PdhRemoveCounter(IntPtr counter);
-    public const uint PDH_FMT_DOUBLE = 0x200;
+    [DllImport("pdh.dll", CharSet = CharSet.Unicode)] public static extern uint PdhGetFormattedCounterArrayW(IntPtr counter, uint format, ref uint bufferSize, ref uint itemCount, IntPtr items);
+    /// <summary>PDH_FMT_COUNTERVALUE_ITEM_W: instance name pointer (into the same buffer) + the formatted value.</summary>
+    [StructLayout(LayoutKind.Sequential)] public struct PdhItem { public IntPtr Name; public PdhDouble Value; }
+    public const uint PDH_FMT_DOUBLE = 0x200, PDH_MORE_DATA = 0x800007D2, PDH_CSTATUS_NEW_DATA = 1;
 }

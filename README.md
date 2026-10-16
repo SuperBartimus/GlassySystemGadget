@@ -56,6 +56,11 @@ Panels (each its own graph group, reorderable, individually switchable):
   by zip/postal code, city/state, latitude/longitude, or Windows' own
   device location; Fahrenheit or Celsius; polls every 1-180 minutes (5 by
   default) plus a manual "Refresh now" button on its Settings page.
+- IIS: shown only on a machine with the IIS role (W3SVC) installed, so the
+  same setup works on a desktop and a web server. A requests/sec and
+  connections graph, then each site (connections, requests/sec) and each
+  application pool (green running, red stopped, amber in between). Read
+  from IIS's own performance counters - no admin rights needed.
 
 Memory, GPU, Network and the drive graphs carry a tiny legend of the lines that
 are switched on (network and drives include the current values).
@@ -151,7 +156,9 @@ for Settings, Lock position, Reset position and Exit.
   Battery adds only which side its glyph sits on (no show/hide - see Known
   limits); Weather adds location method (zip, city/state, lat/lon, or
   device location) and its fields, units, refresh interval, a "show
-  alerts" toggle, and a manual refresh button.
+  alerts" toggle, and a manual refresh button; IIS adds graph height, show
+  sites / show pools, and a per-list row cap (extra rows fold into the
+  list's header, e.g. "Sites  8 of 12").
 - About: version, author and a link back to this repo.
 - Changing a graph's durations or split restarts that graph's history.
 
@@ -161,10 +168,12 @@ for Settings, Lock position, Reset position and Exit.
 dotnet test GlassySystemGadget\tests\Glassy.Tests -c Release
 ```
 
-116 tests: ring/bucket maths, config round trip (incl. the theme colours and
+127 tests: ring/bucket maths, config round trip (incl. the theme colours and
 per-panel background override), theme preset validity, corrupt-file recovery and
-migration (of the old disk panels, and to add the Clipboard, Battery and
-Weather panels to a config that predates them), the raw NtQuerySystemInformation
+migration (of the old disk panels, and to add the Clipboard, Battery,
+Weather and IIS panels to a config that predates them; a config from a newer
+version loses only the panels this one doesn't know), IIS role detection,
+row layout and pool states, a real wildcard performance-counter read, the raw NtQuerySystemInformation
 offsets (checked against this process, including a buffer-growth regression this
 fixed), real CPU, RAM, drive, network and GPU sampling, autostart launcher
 quoting, the load and discharge colour ramps, clipboard classification and
@@ -247,6 +256,13 @@ not touched.
   Zippopotam.us / NWS fetch path has been exercised live successfully
   (zip lookup -> geocode -> forecast -> alerts, end to end); the real
   Windows Geolocation permission prompt has not been.
+- IIS: built and tested without an IIS server (fake provider in tests and
+  `--shot --demo`; the counter-reading code itself is exercised against
+  `\Processor(*)`). The real "Web Service" / "APP_POOL_WAS" counters are
+  unverified until it runs on an actual IIS box; if they can't be read, the
+  panel says so and `glassy.log` records the PDH error code. Which sites
+  appear (started only, or every configured site) is whatever IIS's own
+  counters report.
 
 ## License
 

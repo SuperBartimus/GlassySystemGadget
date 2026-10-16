@@ -11,7 +11,7 @@ public enum ProcPriority { Idle, BelowNormal }
 public enum HistoryMode { Average, Peak }
 public enum ScaleMode { Auto, Fixed }
 /// <summary>DiskIo and DiskSpace are legacy: they exist only so old config files still load, and are merged into Drives on load.</summary>
-public enum PanelKind { Cpu, Ram, Gpu, Network, DiskIo, DiskSpace, TopProcesses, Uptime, Drives, Clipboard, Battery, Weather }
+public enum PanelKind { Cpu, Ram, Gpu, Network, DiskIo, DiskSpace, TopProcesses, Uptime, Drives, Clipboard, Battery, Weather, Iis }
 
 /// <summary>The app's cosmetic chrome - background, border, text tint. Deliberately separate from per-line graph
 /// colours (LineConfig.Color), which stay exactly as configurable as before; this is only the "shell" around them.</summary>
@@ -115,6 +115,11 @@ public sealed class PanelConfig
     public bool WeatherFahrenheit { get; set; } = true;
     public int WeatherPollMinutes { get; set; } = 5;
     public bool WeatherShowAlerts { get; set; } = true;
+    // IIS (Height is the requests/connections graph height; site and pool rows are added below it)
+    public bool IisShowSites { get; set; } = true;
+    public bool IisShowPools { get; set; } = true;
+    /// <summary>Per list; anything past it collapses into a "+N more" note so a busy server can't grow the widget off-screen.</summary>
+    public int IisMaxRows { get; set; } = 8;
     // Theme: "" means inherit GlobalConfig.Theme's background for this one panel.
     public string SectionBgTop { get; set; } = "";
     public string SectionBgBottom { get; set; } = "";
@@ -167,6 +172,10 @@ public sealed class AppConfig
     /// network call, so it stays opt-in rather than defaulting on with an empty/misconfigured location.</summary>
     public static PanelConfig WeatherPanel() => new() { Kind = PanelKind.Weather, Enabled = false };
 
+    /// <summary>Enabled, but only shown on a machine where the IIS role (W3SVC) is installed - so the same config
+    /// works on a desktop and a web server, and an IIS box gets it without touching Settings.</summary>
+    public static PanelConfig IisPanel() => new() { Kind = PanelKind.Iis, Enabled = true, Height = 60, Scale = ScaleMode.Auto, History = HistoryMode.Peak };
+
     public static AppConfig CreateDefault()
     {
         PanelConfig P(PanelKind k, int h, ScaleMode s, double max = 100, HistoryMode hm = HistoryMode.Average) =>
@@ -185,6 +194,7 @@ public sealed class AppConfig
                 ClipboardPanel(true),
                 BatteryPanel(),
                 WeatherPanel(),
+                IisPanel(),
             }
         };
     }
@@ -207,7 +217,7 @@ public static class ConfigStore
         if (!File.Exists(path)) return AppConfig.CreateDefault();
         try
         {
-            var cfg = JsonSerializer.Deserialize<AppConfig>(File.ReadAllBytes(path), Opts);
+            var cfg = JsonSerializer.Deserialize<AppConfig>(DropUnknownPanels(File.ReadAllBytes(path)), Opts);
             if (cfg?.Global == null || cfg.Panels == null || cfg.Panels.Count == 0) throw new JsonException("empty config");
             Migrate(cfg);
             return cfg;
@@ -217,6 +227,23 @@ public static class ConfigStore
             try { File.Move(path, path + ".bad", true); } catch (IOException) { /* best effort */ }
             return AppConfig.CreateDefault();
         }
+    }
+
+    /// <summary>Removes panels whose Kind this build doesn't know (a config saved by a newer version), so running an
+    /// older build loses just those panels instead of treating the whole file as corrupt and resetting to defaults -
+    /// which is what happened when a stale pre-Weather build met a config with a Weather panel (2026-10-16).
+    /// Anything that isn't the expected shape is returned untouched for the normal parse to accept or reject.</summary>
+    internal static byte[] DropUnknownPanels(byte[] json)
+    {
+        try
+        {
+            if (System.Text.Json.Nodes.JsonNode.Parse(json) is not System.Text.Json.Nodes.JsonObject root || root["Panels"] is not System.Text.Json.Nodes.JsonArray panels) return json;
+            var unknown = panels.Where(p => p?["Kind"] is System.Text.Json.Nodes.JsonValue v && v.TryGetValue<string>(out var s) && !Enum.TryParse<PanelKind>(s, true, out _)).ToList();
+            if (unknown.Count == 0) return json;
+            foreach (var u in unknown) panels.Remove(u);
+            return JsonSerializer.SerializeToUtf8Bytes(root);
+        }
+        catch (JsonException) { return json; }
     }
 
     /// <summary>Brings an older saved config up to the current panel set. Each step is independent - one not applying never skips another.</summary>
@@ -239,6 +266,8 @@ public static class ConfigStore
         // Weather is new and makes outbound network calls, so an upgraded config gets it disabled (not omitted) -
         // present in the panel list/Settings so it's discoverable, but never silently starts calling out.
         if (!cfg.Panels.Any(p => p.Kind == PanelKind.Weather)) cfg.Panels.Add(AppConfig.WeatherPanel());
+        // IIS is role-detected (invisible where IIS isn't installed), so an upgraded config gets it enabled.
+        if (!cfg.Panels.Any(p => p.Kind == PanelKind.Iis)) cfg.Panels.Add(AppConfig.IisPanel());
     }
 
     /// <summary>Atomic save (temp file + replace); UTF-8 without BOM.</summary>

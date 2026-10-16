@@ -127,7 +127,14 @@ static class Program
         var demoBattery = demo ? new FakeBatteryProvider { Value = new BatteryStatus { Present = true, Charging = false, OnAc = false, Percent = 55, TimeRemaining = TimeSpan.FromHours(1.6) } } : null;
         var demoWeather = demo ? DemoWeather() : null;
         if (demo && cfg.Panels.FirstOrDefault(x => x.Kind == PanelKind.Weather) is { } wp) { wp.Enabled = true; wp.WeatherResolvedName = "Austin, TX"; }
-        using var engine = new Engine(cfg, configPath: cfgPath, battery: demoBattery, weather: demoWeather); using var r = new D2DRenderer(ForceWarp);
+        // Same for IIS: the dev box has no IIS role, so --demo fakes a small web server.
+        var demoIis = demo ? new FakeIisProvider { Value = new IisStatus
+        {
+            Running = true, TotalConnections = 14, TotalRequestsPerSec = 23.5,
+            Sites = { new IisSite("Default Web Site", 3, 4.5), new IisSite("intranet", 9, 17), new IisSite("api", 2, 2) },
+            Pools = { new IisPool("DefaultAppPool", 3), new IisPool("intranet", 3), new IisPool("legacy", 5) },
+        } } : null;
+        using var engine = new Engine(cfg, configPath: cfgPath, battery: demoBattery, weather: demoWeather, iis: demoIis); using var r = new D2DRenderer(ForceWarp);
         for (int i = 0; i < 6; i++) { engine.Tick(); Thread.Sleep(cfg.Global.TickMs); }
         if (demo) { engine.DemoFill(); DemoFillClipboard(engine); r.ShowSettingsGear = true; }   // showcase the hover-only Settings gear in demo shots
         r.Resize(cfg.Global.Width, engine.TotalHeight, scale); r.Render(engine, cfg.Global);

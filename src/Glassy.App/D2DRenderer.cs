@@ -266,7 +266,7 @@ public sealed class D2DRenderer : IDisposable
 
     static string TitleOf(PanelRuntime p) => p.Title != "" ? p.Title : p.Cfg.Kind switch
     {
-        PanelKind.Cpu => "CPU", PanelKind.Ram => "Memory", PanelKind.Gpu => "GPU", PanelKind.Network => "Network", PanelKind.TopProcesses => "Top processes", _ => "",
+        PanelKind.Cpu => "CPU", PanelKind.Ram => "Memory", PanelKind.Gpu => "GPU", PanelKind.Network => "Network", PanelKind.TopProcesses => "Top processes", PanelKind.Iis => "IIS", _ => "",
     };
 
     float Measure(string s, IDWriteTextFormat f)
@@ -356,6 +356,36 @@ public sealed class D2DRenderer : IDisposable
         if (p.LegendRow) DrawLegend(LegendItems(p), l, t + 21, r);
         var plot = PlotRect(p, W);
         Text(p.Source.Format((float)p.ScaleMax), fSmall, plot.Left + 2, plot.Top + 1, plot.Left + 90, plot.Top + 14, Br(TitleCol, 0.45f));
+        if (p.Cfg.Kind == PanelKind.Iis) IisRows(p, l, r, plot.Bottom + 6, txt, dim);
+    }
+
+    /// <summary>Site and app-pool rows under the IIS graph: a state dot, the name, then connections + req/s for a
+    /// site or the state word for a pool. Row list comes from IisFormat.Rows, the same one Engine sized the panel by.</summary>
+    void IisRows(PanelRuntime p, float l, float r, float y, ID2D1Brush txt, ID2D1Brush dim)
+    {
+        var green = ((byte)124, (byte)255, (byte)107); var red = ((byte)255, (byte)90, (byte)90); var amber = ((byte)255, (byte)200, (byte)87);
+        foreach (var row in IisFormat.Rows(p.Cfg, p.Iis))
+        {
+            switch (row.Kind)
+            {
+                case IisRowKind.Header: Text(row.Text, fSmall, l, y + 2, r, y + 15, Br(TitleCol, 0.5f)); break;
+                case IisRowKind.Note: Text(row.Text, fBody, l + 12, y, r, y + 15, dim); break;
+                case IisRowKind.Site:
+                    dc.FillEllipse(new Ellipse(new Vector2(l + 4, y + 7.5f), 3.2f, 3.2f), Br(green, 0.9f));
+                    Text(row.Text, fBody, l + 12, y, r - 104, y + 15, txt);
+                    Text(row.Site.Connections.ToString("0", CultureInfo.InvariantCulture) + " conn", fSmallR, r - 104, y + 2, r - 50, y + 15, dim);
+                    Text(row.Site.RequestsPerSec.ToString("0.#", CultureInfo.InvariantCulture) + "/s", fBodyR, r - 50, y, r, y + 15, txt);
+                    break;
+                case IisRowKind.Pool:
+                    var (label, health) = IisFormat.PoolState(row.Pool.State);
+                    var col = health > 0 ? green : health < 0 ? red : amber;
+                    dc.FillEllipse(new Ellipse(new Vector2(l + 4, y + 7.5f), 3.2f, 3.2f), Br(col, 0.9f));
+                    Text(row.Text, fBody, l + 12, y, r - 90, y + 15, txt);
+                    Text(label, fSmallR, r - 90, y + 2, r, y + 15, health > 0 ? dim : Br(col, 0.95f));
+                    break;
+            }
+            y += Engine.RowProc;
+        }
     }
 
     void DriveContent(PanelRuntime p, float W, float l, float r, float t, ID2D1Brush txt, ID2D1Brush dim)

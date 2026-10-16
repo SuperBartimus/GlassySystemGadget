@@ -10,13 +10,13 @@ public sealed class SettingsForm : Form
     static readonly Color Bg = Color.FromArgb(28, 20, 40), Bg2 = Color.FromArgb(42, 31, 60), Fg = Color.FromArgb(235, 225, 250), Dim = Color.FromArgb(170, 155, 195);
     readonly AppConfig cfg; readonly Engine engine; readonly Action changed;
     readonly ListBox nav = new(); readonly Panel host = new();
-    static readonly PanelKind[] Kinds = { PanelKind.Cpu, PanelKind.Ram, PanelKind.Gpu, PanelKind.Network, PanelKind.Drives, PanelKind.TopProcesses, PanelKind.Uptime, PanelKind.Clipboard, PanelKind.Battery, PanelKind.Weather };
+    static readonly PanelKind[] Kinds = { PanelKind.Cpu, PanelKind.Ram, PanelKind.Gpu, PanelKind.Network, PanelKind.Drives, PanelKind.TopProcesses, PanelKind.Uptime, PanelKind.Clipboard, PanelKind.Battery, PanelKind.Weather, PanelKind.Iis };
 
     static string PageName(PanelKind k) => k switch
     {
         PanelKind.Cpu => "CPU", PanelKind.Ram => "Memory", PanelKind.Gpu => "GPU", PanelKind.Network => "Network",
         PanelKind.Drives => "Drives", PanelKind.TopProcesses => "Top processes", PanelKind.Clipboard => "Clipboard", PanelKind.Battery => "Battery",
-        PanelKind.Weather => "Weather", _ => "Uptime",
+        PanelKind.Weather => "Weather", PanelKind.Iis => "IIS", _ => "Uptime",
     };
 
     public SettingsForm(AppConfig cfg, Engine engine, Action changed)
@@ -248,7 +248,7 @@ public sealed class SettingsForm : Form
         var p = cfg.Panels.FirstOrDefault(x => x.Kind == kind);
         var stack = new Panel { Dock = DockStyle.Top, AutoSize = true };
         if (p == null) { stack.Controls.Add(Note("This panel is not in the current config. Use Reset on the General page.")); return stack; }
-        bool series = kind == PanelKind.Cpu || kind == PanelKind.Ram || kind == PanelKind.Gpu || kind == PanelKind.Network || kind == PanelKind.Drives;
+        bool series = kind == PanelKind.Cpu || kind == PanelKind.Ram || kind == PanelKind.Gpu || kind == PanelKind.Network || kind == PanelKind.Drives || kind == PanelKind.Iis;
         var t = Table();
         if (kind == PanelKind.Battery)
             Row(t, "", Note("Shown automatically when Windows reports a battery; there is no manual on/off for it."));
@@ -270,11 +270,21 @@ public sealed class SettingsForm : Form
         if (series)
         {
             var info = Note(TimeInfo(p)); void Refresh() => info.Text = TimeInfo(p);
-            Row(t, kind == PanelKind.Drives ? "Activity graph height (px)" : "Height (px)", Num(kind == PanelKind.Drives ? 20 : 50, 500, p.Height, 0, 5, v => p.Height = (int)v));
+            Row(t, kind == PanelKind.Drives ? "Activity graph height (px)" : kind == PanelKind.Iis ? "Graph height (px)" : "Height (px)", Num(kind == PanelKind.Drives || kind == PanelKind.Iis ? 20 : 50, 500, p.Height, 0, 5, v => p.Height = (int)v));
             if (kind == PanelKind.Drives)
             {
                 Row(t, "", Chk("Show activity graph (read / write)", p.ShowActivity, v => p.ShowActivity = v));
                 Row(t, "", Chk("Show space bar", p.ShowSpaceBar, v => p.ShowSpaceBar = v));
+            }
+            if (kind == PanelKind.Iis)
+            {
+                Row(t, "", Chk("Show sites (connections, requests/sec)", p.IisShowSites, v => p.IisShowSites = v));
+                Row(t, "", Chk("Show application pools (state)", p.IisShowPools, v => p.IisShowPools = v));
+                Row(t, "Max rows per list", Num(1, 50, p.IisMaxRows, 0, 1, v => p.IisMaxRows = (int)v));
+                t.Controls.Add(new Label());
+                t.Controls.Add(Note("Appears only on a machine with the IIS role (W3SVC) installed. Read from IIS's own " +
+                    "performance counters, so no admin rights are needed. Sites and pools are listed as those counters report them; " +
+                    "a pool's dot is green when running, red when stopped, amber in between."));
             }
             Row(t, "Live side shows (seconds)", Num(2, 7200, (decimal)p.LiveSeconds, 0, 5, v => { p.LiveSeconds = (double)v; Refresh(); }));
             Row(t, "History side shows (hours)", Num(0.05m, 336, (decimal)(p.HistorySeconds / 3600), 2, 0.5m, v => { p.HistorySeconds = (double)v * 3600; Refresh(); }));
