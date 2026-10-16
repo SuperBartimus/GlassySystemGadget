@@ -382,3 +382,46 @@ public sealed class ProcessSampler : IDisposable
     }
     public void Dispose() { Marshal.FreeHGlobal(buf); buf = IntPtr.Zero; }
 }
+
+/// <summary>A graph whose lines follow what's on the machine right now - one per IIS site, one per VM - after a few
+/// fixed ones. Lines are matched by Key (Prefix + item name), so each item keeps its colour, and the row under the
+/// graph can reuse that colour as its dot. Engine re-lays out the panel when LayoutSignature changes.</summary>
+public abstract class PerItemSource : IPanelSource
+{
+    // Avoids the state colours the rows use (green running, red stopped, amber transitional, grey off, violet saved)
+    // so a dot that is a line colour never reads as a state.
+    static readonly string[] Palette = { "#FF6EC7", "#FFE45C", "#7FC8FF", "#FF8A5C", "#E08CFF", "#5FE3B0", "#C8F060", "#F0F0F0" };
+    string[] keys = Array.Empty<string>();
+
+    public abstract PanelKind Kind { get; }
+    public abstract float MinScale { get; }
+    public double UnitBase => 1000;
+    public bool LegendWithValues => true;
+    protected abstract string Prefix { get; }
+    protected abstract IReadOnlyList<LineConfig> FixedLines();
+    /// <summary>Current item names, in display order.</summary>
+    protected abstract IEnumerable<string> Items { get; }
+    /// <summary>False until the first real reading. Engine then keeps the configured lines instead of reconciling
+    /// against an empty item list, which would drop every per-item line (and any colour the user gave it) on each start.</summary>
+    public abstract bool Ready { get; }
+    /// <summary>Rows drawn under the graph for this config - the panel's height depends on it.</summary>
+    public abstract int RowCount(PanelConfig cfg);
+    protected abstract void Refresh();
+    protected abstract float Value(string key);
+
+    public bool IsItemLine(string key) => key.StartsWith(Prefix, StringComparison.Ordinal);
+    public string ItemKey(string item) => Prefix + item;
+    public string LayoutSignature(PanelConfig cfg) => string.Join("\u0001", Items) + "#" + RowCount(cfg);
+
+    public IReadOnlyList<LineConfig> DefaultLines() =>
+        FixedLines().Concat(Items.Distinct().Select((n, i) => new LineConfig { Key = Prefix + n, Label = n, Color = Palette[i % Palette.Length], Width = 1.4f })).ToList();
+    public void Configure(PanelConfig cfg) => keys = cfg.Lines.Select(l => l.Key).ToArray();
+    public void Sample(float[] into)
+    {
+        Refresh();
+        for (int i = 0; i < into.Length; i++) into[i] = i < keys.Length ? Value(keys[i]) : float.NaN;
+    }
+    public abstract string Readout(float[] latest);
+    public virtual string Format(float v) => v >= 1000 ? (v / 1000).ToString("0.#", CultureInfo.InvariantCulture) + "k" : v.ToString(v < 10 ? "0.#" : "0", CultureInfo.InvariantCulture);
+    public virtual void Dispose() { }
+}

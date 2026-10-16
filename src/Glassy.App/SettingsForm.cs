@@ -10,13 +10,13 @@ public sealed class SettingsForm : Form
     static readonly Color Bg = Color.FromArgb(28, 20, 40), Bg2 = Color.FromArgb(42, 31, 60), Fg = Color.FromArgb(235, 225, 250), Dim = Color.FromArgb(170, 155, 195);
     readonly AppConfig cfg; readonly Engine engine; readonly Action changed;
     readonly ListBox nav = new(); readonly Panel host = new();
-    static readonly PanelKind[] Kinds = { PanelKind.Cpu, PanelKind.Ram, PanelKind.Gpu, PanelKind.Network, PanelKind.Drives, PanelKind.TopProcesses, PanelKind.Uptime, PanelKind.Clipboard, PanelKind.Battery, PanelKind.Weather, PanelKind.Iis };
+    static readonly PanelKind[] Kinds = { PanelKind.Cpu, PanelKind.Ram, PanelKind.Gpu, PanelKind.Network, PanelKind.Drives, PanelKind.TopProcesses, PanelKind.Uptime, PanelKind.Clipboard, PanelKind.Battery, PanelKind.Weather, PanelKind.Iis, PanelKind.HyperV };
 
     static string PageName(PanelKind k) => k switch
     {
         PanelKind.Cpu => "CPU", PanelKind.Ram => "Memory", PanelKind.Gpu => "GPU", PanelKind.Network => "Network",
         PanelKind.Drives => "Drives", PanelKind.TopProcesses => "Top processes", PanelKind.Clipboard => "Clipboard", PanelKind.Battery => "Battery",
-        PanelKind.Weather => "Weather", PanelKind.Iis => "IIS", _ => "Uptime",
+        PanelKind.Weather => "Weather", PanelKind.Iis => "IIS", PanelKind.HyperV => "Hyper-V", _ => "Uptime",
     };
 
     public SettingsForm(AppConfig cfg, Engine engine, Action changed)
@@ -248,7 +248,7 @@ public sealed class SettingsForm : Form
         var p = cfg.Panels.FirstOrDefault(x => x.Kind == kind);
         var stack = new Panel { Dock = DockStyle.Top, AutoSize = true };
         if (p == null) { stack.Controls.Add(Note("This panel is not in the current config. Use Reset on the General page.")); return stack; }
-        bool series = kind == PanelKind.Cpu || kind == PanelKind.Ram || kind == PanelKind.Gpu || kind == PanelKind.Network || kind == PanelKind.Drives || kind == PanelKind.Iis;
+        bool series = kind == PanelKind.Cpu || kind == PanelKind.Ram || kind == PanelKind.Gpu || kind == PanelKind.Network || kind == PanelKind.Drives || kind == PanelKind.Iis || kind == PanelKind.HyperV;
         var t = Table();
         if (kind == PanelKind.Battery)
             Row(t, "", Note("Shown automatically when Windows reports a battery; there is no manual on/off for it."));
@@ -270,7 +270,7 @@ public sealed class SettingsForm : Form
         if (series)
         {
             var info = Note(TimeInfo(p)); void Refresh() => info.Text = TimeInfo(p);
-            Row(t, kind == PanelKind.Drives ? "Activity graph height (px)" : kind == PanelKind.Iis ? "Graph height (px)" : "Height (px)", Num(kind == PanelKind.Drives || kind == PanelKind.Iis ? 20 : 50, 500, p.Height, 0, 5, v => p.Height = (int)v));
+            Row(t, kind == PanelKind.Drives ? "Activity graph height (px)" : kind == PanelKind.Iis || kind == PanelKind.HyperV ? "Graph height (px)" : "Height (px)", Num(kind == PanelKind.Drives || kind == PanelKind.Iis || kind == PanelKind.HyperV ? 20 : 50, 500, p.Height, 0, 5, v => p.Height = (int)v));
             if (kind == PanelKind.Drives)
             {
                 Row(t, "", Chk("Show activity graph (read / write)", p.ShowActivity, v => p.ShowActivity = v));
@@ -284,7 +284,19 @@ public sealed class SettingsForm : Form
                 t.Controls.Add(new Label());
                 t.Controls.Add(Note("Appears only on a machine with the IIS role (W3SVC) installed. Read from IIS's own " +
                     "performance counters, so no admin rights are needed. Sites and pools are listed as those counters report them; " +
-                    "a pool's dot is green when running, red when stopped, amber in between."));
+                    "a pool's dot is green when running, red when stopped, amber in between. Each site gets its own " +
+                    "requests/sec line, coloured like its dot; turn individual lines off in the list below."));
+            }
+            if (kind == PanelKind.HyperV)
+            {
+                Row(t, "", Chk("List VMs that are off, saved or paused", p.HvShowOff, v => p.HvShowOff = v));
+                Row(t, "Max VM rows", Num(1, 50, p.HvMaxRows, 0, 1, v => p.HvMaxRows = (int)v));
+                t.Controls.Add(new Label());
+                t.Controls.Add(Note("Appears only on a machine with the Hyper-V role (vmms) installed. Host CPU is the " +
+                    "hypervisor's view, including every VM - the CPU panel on a Hyper-V host only sees the host's own share. " +
+                    "Each running VM gets its own CPU line, coloured like its dot. CPU and memory come from performance " +
+                    "counters; the full VM list, state and uptime come from WMI, which needs admin or membership in " +
+                    "Hyper-V Administrators - without it, only running VMs are listed."));
             }
             Row(t, "Live side shows (seconds)", Num(2, 7200, (decimal)p.LiveSeconds, 0, 5, v => { p.LiveSeconds = (double)v; Refresh(); }));
             Row(t, "History side shows (hours)", Num(0.05m, 336, (decimal)(p.HistorySeconds / 3600), 2, 0.5m, v => { p.HistorySeconds = (double)v * 3600; Refresh(); }));

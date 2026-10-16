@@ -134,7 +134,17 @@ static class Program
             Sites = { new IisSite("Default Web Site", 3, 4.5), new IisSite("intranet", 9, 17), new IisSite("api", 2, 2) },
             Pools = { new IisPool("DefaultAppPool", 3), new IisPool("intranet", 3), new IisPool("legacy", 5) },
         } } : null;
-        using var engine = new Engine(cfg, configPath: cfgPath, battery: demoBattery, weather: demoWeather, iis: demoIis); using var r = new D2DRenderer(ForceWarp);
+        var demoHyperV = demo ? new FakeHyperVProvider { Value = new HyperVStatus
+        {
+            Available = true, FullList = true, HostCpuPct = 34,
+            Vms =
+            {
+                new HyperVVm("dc01", 2, 6, 2048, TimeSpan.FromDays(41.3)), new HyperVVm("sql01", 2, 47, 16384, TimeSpan.FromDays(12.2)),
+                new HyperVVm("web01", 2, 18, 4096, TimeSpan.FromHours(30)), new HyperVVm("lab-win11", 6, double.NaN, double.NaN, null),
+                new HyperVVm("old-backup", 3, double.NaN, double.NaN, null),
+            },
+        } } : null;
+        using var engine = new Engine(cfg, configPath: cfgPath, battery: demoBattery, weather: demoWeather, iis: demoIis, hyperV: demoHyperV); using var r = new D2DRenderer(ForceWarp);
         for (int i = 0; i < 6; i++) { engine.Tick(); Thread.Sleep(cfg.Global.TickMs); }
         if (demo) { engine.DemoFill(); DemoFillClipboard(engine); r.ShowSettingsGear = true; }   // showcase the hover-only Settings gear in demo shots
         r.Resize(cfg.Global.Width, engine.TotalHeight, scale); r.Render(engine, cfg.Global);

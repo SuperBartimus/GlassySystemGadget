@@ -158,29 +158,32 @@ public sealed class FakeIisProvider : IIisProvider
     public void Dispose() { }
 }
 
-/// <summary>Graph lines: total requests/sec and total current connections. The site/pool rows come from Status.</summary>
-public sealed class IisSource : IPanelSource
+/// <summary>Graph lines: total requests/sec, total connections, then one requests/sec line per site.
+/// The site/pool rows under the graph come from Status.</summary>
+public sealed class IisSource : PerItemSource
 {
     readonly Func<IIisProvider> provider;
     public IisStatus Status { get; private set; } = new();
     public IisSource(Func<IIisProvider> provider) { this.provider = provider; }
-    public PanelKind Kind => PanelKind.Iis;
-    public float MinScale => 10;
-    public double UnitBase => 1000;
-    public bool LegendWithValues => true;
-    public IReadOnlyList<LineConfig> DefaultLines() => new LineConfig[]
+    public override PanelKind Kind => PanelKind.Iis;
+    public override float MinScale => 10;
+    protected override string Prefix => "site:";
+    protected override IReadOnlyList<LineConfig> FixedLines() => new LineConfig[]
     {
         new() { Key = "req", Label = "Req/s", Color = "#4DE1FF", Width = 1.8f, Glow = true, Fill = true },
         new() { Key = "conn", Label = "Connections", Color = "#FFB463", Width = 1.5f },
     };
-    public void Configure(PanelConfig cfg) { }
-    public void Sample(float[] into)
+    protected override IEnumerable<string> Items => Status.Sites.Select(s => s.Name);
+    public override bool Ready => Status.Running;
+    public override int RowCount(PanelConfig cfg) => IisFormat.Rows(cfg, Status).Count;
+    protected override void Refresh() => Status = provider().Sample();
+    protected override float Value(string key)
     {
-        Status = provider().Sample();
-        into[0] = Status.Running ? (float)Status.TotalRequestsPerSec : float.NaN;
-        into[1] = Status.Running ? (float)Status.TotalConnections : float.NaN;
+        if (!Status.Running) return float.NaN;
+        if (key == "req") return (float)Status.TotalRequestsPerSec;
+        if (key == "conn") return (float)Status.TotalConnections;
+        var site = Status.Sites.FirstOrDefault(s => ItemKey(s.Name) == key);
+        return site == null ? float.NaN : (float)site.RequestsPerSec;
     }
-    public string Readout(float[] latest) => Status.Running ? $"{Status.Sites.Count} sites  {Status.Pools.Count} pools" : Status.Note;
-    public string Format(float v) => v >= 1000 ? (v / 1000).ToString("0.#") + "k" : v.ToString(v < 10 ? "0.#" : "0");
-    public void Dispose() { }
+    public override string Readout(float[] latest) => Status.Running ? $"{Status.Sites.Count} sites  {Status.Pools.Count} pools" : Status.Note;
 }

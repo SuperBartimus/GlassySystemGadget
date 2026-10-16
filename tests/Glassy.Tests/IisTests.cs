@@ -37,7 +37,7 @@ public class IisTests
         fake.Value = Server(sites: 3, pools: 2);
         e.Tick(); e.Tick();                                      // first tick samples, second sees the new row count and relayouts
         var p = e.Panels[0];
-        Assert.Equal(2 + 3 + 2, IisFormat.Rows(p.Cfg, p.Iis).Count);   // two headers, three sites, two pools
+        Assert.Equal(2 + 3 + 2, IisFormat.Rows(p.Cfg, ((IisSource)p.Source).Status).Count);   // two headers, three sites, two pools
         Assert.Equal(before + 6 * Engine.RowProc, p.Height);
     }
 
@@ -100,5 +100,16 @@ public class IisTests
         Assert.Equal(300, cfg.Global.Width);                                  // the user's settings survived
         Assert.Equal(new[] { PanelKind.Cpu, PanelKind.Uptime }, cfg.Panels.Take(2).Select(p => p.Kind));
         Assert.False(File.Exists(path + ".bad"));
+    }
+
+    [Fact]
+    public void Each_site_gets_its_own_requests_line()
+    {
+        var fake = new FakeIisProvider { Value = Server(sites: 2, pools: 1) };
+        using var e = IisEngine(fake);
+        e.Tick(); e.Tick();
+        var p = e.Panels[0];
+        Assert.Equal(new[] { "req", "conn", "site:site1", "site:site2" }, p.Cfg.Lines.Select(l => l.Key));
+        Assert.Equal(new[] { 2f, 4f }, p.Latest.Skip(2));                    // each site's own req/s
     }
 }

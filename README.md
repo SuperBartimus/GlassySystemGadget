@@ -57,10 +57,19 @@ Panels (each its own graph group, reorderable, individually switchable):
   device location; Fahrenheit or Celsius; polls every 1-180 minutes (5 by
   default) plus a manual "Refresh now" button on its Settings page.
 - IIS: shown only on a machine with the IIS role (W3SVC) installed, so the
-  same setup works on a desktop and a web server. A requests/sec and
-  connections graph, then each site (connections, requests/sec) and each
-  application pool (green running, red stopped, amber in between). Read
-  from IIS's own performance counters - no admin rights needed.
+  same setup works on a desktop and a web server. A graph of total
+  requests/sec and connections plus one requests/sec line per site, then
+  each site (connections, requests/sec; its dot is its line's colour) and
+  each application pool (green running, red stopped, amber in between).
+  Read from IIS's own performance counters - no admin rights needed.
+- Hyper-V: shown only on a machine with the Hyper-V role (vmms) installed.
+  A graph of host CPU - the hypervisor's view, which includes every VM,
+  unlike the CPU panel on a Hyper-V host - plus one CPU line per VM, then
+  a row per VM: CPU, assigned memory and uptime while running, otherwise
+  its state (off, saved, paused...). The full VM list, state and uptime
+  come from WMI, which needs admin or membership in Hyper-V
+  Administrators; without it, running VMs are still listed from the
+  performance counters and the panel says what's missing.
 
 Memory, GPU, Network and the drive graphs carry a tiny legend of the lines that
 are switched on (network and drives include the current values).
@@ -158,7 +167,9 @@ for Settings, Lock position, Reset position and Exit.
   device location) and its fields, units, refresh interval, a "show
   alerts" toggle, and a manual refresh button; IIS adds graph height, show
   sites / show pools, and a per-list row cap (extra rows fold into the
-  list's header, e.g. "Sites  8 of 12").
+  list's header, e.g. "Sites  8 of 12"); Hyper-V adds graph height, show
+  off/saved/paused VMs, and a VM row cap. Per-site and per-VM lines can be
+  recoloured or switched off individually like any other graph line.
 - About: version, author and a link back to this repo.
 - Changing a graph's durations or split restarts that graph's history.
 
@@ -168,12 +179,15 @@ for Settings, Lock position, Reset position and Exit.
 dotnet test GlassySystemGadget\tests\Glassy.Tests -c Release
 ```
 
-127 tests: ring/bucket maths, config round trip (incl. the theme colours and
+137 tests: ring/bucket maths, config round trip (incl. the theme colours and
 per-panel background override), theme preset validity, corrupt-file recovery and
 migration (of the old disk panels, and to add the Clipboard, Battery,
-Weather and IIS panels to a config that predates them; a config from a newer
-version loses only the panels this one doesn't know), IIS role detection,
-row layout and pool states, a real wildcard performance-counter read, the raw NtQuerySystemInformation
+Weather, IIS and Hyper-V panels to a config that predates them; a config from a newer
+version loses only the panels this one doesn't know), IIS and Hyper-V role
+detection, row layout, pool and VM states, per-site/per-VM lines (a new one
+keeps the others' history, a custom colour survives a restart, duplicate VM
+names), merging the WMI VM list with the counters (and falling back without
+WMI), a real wildcard performance-counter read and a real WMI query, the raw NtQuerySystemInformation
 offsets (checked against this process, including a buffer-growth regression this
 fixed), real CPU, RAM, drive, network and GPU sampling, autostart launcher
 quoting, the load and discharge colour ramps, clipboard classification and
@@ -262,7 +276,15 @@ not touched.
   unverified until it runs on an actual IIS box; if they can't be read, the
   panel says so and `glassy.log` records the PDH error code. Which sites
   appear (started only, or every configured site) is whatever IIS's own
-  counters report.
+  counters report. Confirmed working on a real IIS server (v0.7.0).
+- Hyper-V: built and tested without a Hyper-V host, the same way (fake
+  provider; the WMI plumbing is exercised against `Win32_Process`). The real
+  `Msvm_ComputerSystem` query and the "Hyper-V Hypervisor Virtual
+  Processor" / "Hyper-V Dynamic Memory VM" / "Hyper-V Hypervisor Logical
+  Processor" counters are unverified until it runs on an actual host;
+  failures are logged to `glassy.log` with their error codes. VM CPU is the
+  average of the VM's own virtual processors (not a share of the host),
+  so a VM with 4 processors pegging one reads 25%.
 
 ## License
 

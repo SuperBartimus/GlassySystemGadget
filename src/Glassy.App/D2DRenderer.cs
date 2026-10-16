@@ -266,7 +266,7 @@ public sealed class D2DRenderer : IDisposable
 
     static string TitleOf(PanelRuntime p) => p.Title != "" ? p.Title : p.Cfg.Kind switch
     {
-        PanelKind.Cpu => "CPU", PanelKind.Ram => "Memory", PanelKind.Gpu => "GPU", PanelKind.Network => "Network", PanelKind.TopProcesses => "Top processes", PanelKind.Iis => "IIS", _ => "",
+        PanelKind.Cpu => "CPU", PanelKind.Ram => "Memory", PanelKind.Gpu => "GPU", PanelKind.Network => "Network", PanelKind.TopProcesses => "Top processes", PanelKind.Iis => "IIS", PanelKind.HyperV => "Hyper-V", _ => "",
     };
 
     float Measure(string s, IDWriteTextFormat f)
@@ -284,6 +284,7 @@ public sealed class D2DRenderer : IDisposable
         for (int i = 0; i < p.Cfg.Lines.Count; i++)
         {
             var lc = p.Cfg.Lines[i]; if (!lc.Visible) continue;   // only lines that are switched on
+            if (p.Source is PerItemSource ps && ps.IsItemLine(lc.Key)) continue;   // per-site/per-VM colours are shown on their rows instead
             string t = lc.Label;
             if (p.Source.LegendWithValues && i < p.Latest.Length && !float.IsNaN(p.Latest[i])) t += " " + p.Source.Format(p.Latest[i]);
             items.Add((t, Hex(lc.Color), Measure(t, fSmall)));
@@ -356,22 +357,58 @@ public sealed class D2DRenderer : IDisposable
         if (p.LegendRow) DrawLegend(LegendItems(p), l, t + 21, r);
         var plot = PlotRect(p, W);
         Text(p.Source.Format((float)p.ScaleMax), fSmall, plot.Left + 2, plot.Top + 1, plot.Left + 90, plot.Top + 14, Br(TitleCol, 0.45f));
-        if (p.Cfg.Kind == PanelKind.Iis) IisRows(p, l, r, plot.Bottom + 6, txt, dim);
+        if (p.Source is IisSource iis) IisRows(p, iis, l, r, plot.Bottom + 6, txt, dim);
+        if (p.Source is HyperVSource hv) HyperVRows(p, hv, l, r, plot.Bottom + 6, txt, dim);
     }
 
-    /// <summary>Site and app-pool rows under the IIS graph: a state dot, the name, then connections + req/s for a
+    /// <summary>A per-item row's dot is the colour of that item's graph line, so the row doubles as the legend;
+    /// falls back to the given colour when the line is hidden (or the item has none).</summary>
+    (byte r, byte g, byte b) LineColour(PanelRuntime p, PerItemSource src, string item, (byte r, byte g, byte b) fallback) =>
+        p.Cfg.Lines.FirstOrDefault(x => x.Key == src.ItemKey(item)) is { Visible: true } lc ? Hex(lc.Color) : fallback;
+
+    void Dot(float x, float y, (byte r, byte g, byte b) c) => dc.FillEllipse(new Ellipse(new Vector2(x + 4, y + 7.5f), 3.2f, 3.2f), Br(c, 0.9f));
+
+    /// <summary>One row per VM: dot (its CPU line's colour while running, else grey off / violet saved-paused / amber
+    /// transitional), name, CPU, assigned memory, then uptime while running or the state word otherwise.</summary>
+    void HyperVRows(PanelRuntime p, HyperVSource src, float l, float r, float y, ID2D1Brush txt, ID2D1Brush dim)
+    {
+        foreach (var row in HyperVFormat.Rows(p.Cfg, src.Status))
+        {
+            if (row.Kind == HyperVRowKind.Header) Text(row.Text, fSmall, l, y + 2, r, y + 15, Br(TitleCol, 0.5f));
+            else if (row.Kind == HyperVRowKind.Note) Text(row.Text, fSmall, l + 12, y + 2, r, y + 15, dim);
+            else
+            {
+                var vm = row.Vm; var (label, tone) = HyperVFormat.State(vm.State);
+                var toneCol = tone switch
+                {
+                    VmTone.Running => ((byte)124, (byte)255, (byte)107), VmTone.Off => ((byte)150, (byte)150, (byte)160),
+                    VmTone.Parked => ((byte)150, (byte)140, (byte)255), _ => ((byte)255, (byte)200, (byte)87),
+                };
+                bool on = tone == VmTone.Running;
+                Dot(l, y, on ? LineColour(p, src, vm.Name, toneCol) : toneCol);
+                Text(row.Text, fBody, l + 12, y, r - 150, y + 15, on ? txt : dim);
+                if (on && !double.IsNaN(vm.CpuPct)) Text(Fmt.Pct(vm.CpuPct), fBodyR, r - 150, y, r - 110, y + 15, txt);
+                if (on && !double.IsNaN(vm.MemoryMB)) Text(Fmt.Bytes(vm.MemoryMB * 1024 * 1024), fSmallR, r - 110, y + 2, r - 56, y + 15, dim);
+                string last = on ? (vm.Uptime is { } up ? Fmt.Uptime(up).Split(' ').Take(2).Aggregate((a, b) => a + " " + b) : "") : label;
+                Text(last, fSmallR, r - 56, y + 2, r, y + 15, on ? dim : Br(toneCol, 0.95f));
+            }
+            y += Engine.RowProc;
+        }
+    }
+
+    /// <summary>Site and app-pool rows under the IIS graph: a dot (a site's is its graph line colour), the name, then connections + req/s for a
     /// site or the state word for a pool. Row list comes from IisFormat.Rows, the same one Engine sized the panel by.</summary>
-    void IisRows(PanelRuntime p, float l, float r, float y, ID2D1Brush txt, ID2D1Brush dim)
+    void IisRows(PanelRuntime p, IisSource src, float l, float r, float y, ID2D1Brush txt, ID2D1Brush dim)
     {
         var green = ((byte)124, (byte)255, (byte)107); var red = ((byte)255, (byte)90, (byte)90); var amber = ((byte)255, (byte)200, (byte)87);
-        foreach (var row in IisFormat.Rows(p.Cfg, p.Iis))
+        foreach (var row in IisFormat.Rows(p.Cfg, src.Status))
         {
             switch (row.Kind)
             {
                 case IisRowKind.Header: Text(row.Text, fSmall, l, y + 2, r, y + 15, Br(TitleCol, 0.5f)); break;
                 case IisRowKind.Note: Text(row.Text, fBody, l + 12, y, r, y + 15, dim); break;
                 case IisRowKind.Site:
-                    dc.FillEllipse(new Ellipse(new Vector2(l + 4, y + 7.5f), 3.2f, 3.2f), Br(green, 0.9f));
+                    Dot(l, y, LineColour(p, src, row.Site.Name, green));
                     Text(row.Text, fBody, l + 12, y, r - 104, y + 15, txt);
                     Text(row.Site.Connections.ToString("0", CultureInfo.InvariantCulture) + " conn", fSmallR, r - 104, y + 2, r - 50, y + 15, dim);
                     Text(row.Site.RequestsPerSec.ToString("0.#", CultureInfo.InvariantCulture) + "/s", fBodyR, r - 50, y, r, y + 15, txt);

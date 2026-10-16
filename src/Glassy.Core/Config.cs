@@ -11,7 +11,7 @@ public enum ProcPriority { Idle, BelowNormal }
 public enum HistoryMode { Average, Peak }
 public enum ScaleMode { Auto, Fixed }
 /// <summary>DiskIo and DiskSpace are legacy: they exist only so old config files still load, and are merged into Drives on load.</summary>
-public enum PanelKind { Cpu, Ram, Gpu, Network, DiskIo, DiskSpace, TopProcesses, Uptime, Drives, Clipboard, Battery, Weather, Iis }
+public enum PanelKind { Cpu, Ram, Gpu, Network, DiskIo, DiskSpace, TopProcesses, Uptime, Drives, Clipboard, Battery, Weather, Iis, HyperV }
 
 /// <summary>The app's cosmetic chrome - background, border, text tint. Deliberately separate from per-line graph
 /// colours (LineConfig.Color), which stay exactly as configurable as before; this is only the "shell" around them.</summary>
@@ -120,6 +120,9 @@ public sealed class PanelConfig
     public bool IisShowPools { get; set; } = true;
     /// <summary>Per list; anything past it collapses into a "+N more" note so a busy server can't grow the widget off-screen.</summary>
     public int IisMaxRows { get; set; } = 8;
+    // Hyper-V (Height is the CPU graph height; one row per VM below it)
+    public bool HvShowOff { get; set; } = true;
+    public int HvMaxRows { get; set; } = 10;
     // Theme: "" means inherit GlobalConfig.Theme's background for this one panel.
     public string SectionBgTop { get; set; } = "";
     public string SectionBgBottom { get; set; } = "";
@@ -176,6 +179,9 @@ public sealed class AppConfig
     /// works on a desktop and a web server, and an IIS box gets it without touching Settings.</summary>
     public static PanelConfig IisPanel() => new() { Kind = PanelKind.Iis, Enabled = true, Height = 60, Scale = ScaleMode.Auto, History = HistoryMode.Peak };
 
+    /// <summary>Same role-detected pattern as IIS: enabled, shown only where the Hyper-V role (vmms) is installed.</summary>
+    public static PanelConfig HyperVPanel() => new() { Kind = PanelKind.HyperV, Enabled = true, Height = 60, Scale = ScaleMode.Fixed, FixedMax = 100 };
+
     public static AppConfig CreateDefault()
     {
         PanelConfig P(PanelKind k, int h, ScaleMode s, double max = 100, HistoryMode hm = HistoryMode.Average) =>
@@ -195,6 +201,7 @@ public sealed class AppConfig
                 BatteryPanel(),
                 WeatherPanel(),
                 IisPanel(),
+                HyperVPanel(),
             }
         };
     }
@@ -268,6 +275,7 @@ public static class ConfigStore
         if (!cfg.Panels.Any(p => p.Kind == PanelKind.Weather)) cfg.Panels.Add(AppConfig.WeatherPanel());
         // IIS is role-detected (invisible where IIS isn't installed), so an upgraded config gets it enabled.
         if (!cfg.Panels.Any(p => p.Kind == PanelKind.Iis)) cfg.Panels.Add(AppConfig.IisPanel());
+        if (!cfg.Panels.Any(p => p.Kind == PanelKind.HyperV)) cfg.Panels.Add(AppConfig.HyperVPanel());
     }
 
     /// <summary>Atomic save (temp file + replace); UTF-8 without BOM.</summary>

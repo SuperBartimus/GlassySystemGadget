@@ -26,8 +26,8 @@ public sealed class PanelRuntime
     public WeatherSnapshot Weather;
     public string WeatherError = "";
     public bool WeatherRefreshing;
-    /// <summary>IIS panel only: the latest site/pool reading behind the graph.</summary>
-    public IisStatus Iis;
+    /// <summary>Line keys the Series buffers belong to, in order - lets a changed line set keep surviving history.</summary>
+    internal string[] SeriesKeys = Array.Empty<string>();
     internal string TimingKey = "";
     public bool IsSeries => Source != null;
 }
@@ -64,6 +64,7 @@ public sealed class Engine : IDisposable
     IBatteryProvider battery; readonly bool ownsBattery;
     IWeatherProvider weather; readonly bool ownsWeather;
     IIisProvider iis; readonly bool ownsIis;
+    IHyperVProvider hyperV; readonly bool ownsHyperV;
     DriveActivityHub activity;
     ProcessSampler procs;
     readonly ClipboardStore clipboard;
@@ -77,13 +78,14 @@ public sealed class Engine : IDisposable
     public static string ClipboardDirFor(string configPath) => Path.Combine(Path.GetDirectoryName(configPath)!, "Clipboard");
     public static string DefaultClipboardDir => ClipboardDirFor(ConfigStore.DefaultPath);
 
-    public Engine(AppConfig cfg, IVolumeProvider volumes = null, INetProvider net = null, ClipboardStore clipboard = null, string configPath = null, IBatteryProvider battery = null, IWeatherProvider weather = null, IIisProvider iis = null)
+    public Engine(AppConfig cfg, IVolumeProvider volumes = null, INetProvider net = null, ClipboardStore clipboard = null, string configPath = null, IBatteryProvider battery = null, IWeatherProvider weather = null, IIisProvider iis = null, IHyperVProvider hyperV = null)
     {
         this.volumes = volumes; ownsVolumes = volumes == null;
         this.net = net; ownsNet = net == null;
         this.battery = battery; ownsBattery = battery == null;
         this.weather = weather; ownsWeather = weather == null;
         this.iis = iis; ownsIis = iis == null;
+        this.hyperV = hyperV; ownsHyperV = hyperV == null;
         this.clipboard = clipboard ?? new ClipboardStore(ClipboardDirFor(configPath ?? ConfigStore.DefaultPath));
         initialUptimeRecordSeconds = cfg.Global.UptimeRecordSeconds;   // captured once, before this session's own ticks can raise it, so "new record" means genuinely new
         Apply(cfg);
@@ -94,6 +96,7 @@ public sealed class Engine : IDisposable
     IBatteryProvider Battery => battery ??= new SystemBatteryProvider();
     IWeatherProvider Weather => weather ??= new OpenMeteoWeatherProvider();
     IIisProvider Iis => iis ??= new PdhIisProvider();
+    IHyperVProvider HyperV => hyperV ??= new PdhHyperVProvider();
     DriveActivityHub Activity => activity ??= new DriveActivityHub();
     /// <summary>Bypasses the poll interval on the next Tick - Settings' manual "Refresh now" button and a fresh
     /// device-location resolution both call this.</summary>
@@ -104,7 +107,7 @@ public sealed class Engine : IDisposable
     IPanelSource SourceFor(PanelKind k)
     {
         if (sources.TryGetValue(k, out var s)) return s;
-        s = k switch { PanelKind.Cpu => new CpuSource(), PanelKind.Ram => new RamSource(), PanelKind.Gpu => new GpuSource(), PanelKind.Battery => new BatterySource(() => Battery.Snapshot), PanelKind.Iis => new IisSource(() => Iis), _ => null };
+        s = k switch { PanelKind.Cpu => new CpuSource(), PanelKind.Ram => new RamSource(), PanelKind.Gpu => new GpuSource(), PanelKind.Battery => new BatterySource(() => Battery.Snapshot), PanelKind.Iis => new IisSource(() => Iis), PanelKind.HyperV => new HyperVSource(() => HyperV), _ => null };
         if (s != null) sources[k] = s;
         return s;
     }
@@ -117,7 +120,7 @@ public sealed class Engine : IDisposable
         p.Lines = defaults.Select(d => byKey.TryGetValue(d.Key, out var have) ? have : d).ToList();
     }
 
-    static bool HasLegendRow(PanelKind k) => k == PanelKind.Ram || k == PanelKind.Gpu || k == PanelKind.Network || k == PanelKind.Iis;
+    static bool HasLegendRow(PanelKind k) => k == PanelKind.Ram || k == PanelKind.Gpu || k == PanelKind.Network || k == PanelKind.Iis || k == PanelKind.HyperV;
 
     IEnumerable<VolumeRow> VisibleVolumes(PanelConfig pc) =>
         Volumes.Snapshot.Where(v => !pc.HiddenDrives.Contains(v.Letter, StringComparer.OrdinalIgnoreCase));
@@ -128,13 +131,13 @@ public sealed class Engine : IDisposable
     /// <summary>Battery presence, not a user preference: the panel is enabled in config but only ever shown when
     /// hardware actually reports one (this dev machine, a desktop, never will).</summary>
     bool BatteryPresent => Battery.Snapshot?.Present == true;
-    IisStatus IisStatusNow => (sources.GetValueOrDefault(PanelKind.Iis) as IisSource)?.Status;
 
     /// <summary>Role detection: battery and IIS panels are enabled in config but only shown where the hardware/role exists.</summary>
     bool Present(PanelConfig p, bool batteryPresent) => p.Kind switch
     {
         PanelKind.Battery => batteryPresent,
         PanelKind.Iis => Iis.Installed,
+        PanelKind.HyperV => HyperV.Installed,
         _ => true,
     };
 
@@ -147,7 +150,7 @@ public sealed class Engine : IDisposable
             if (pc.Kind == PanelKind.Drives) sb.Append("D:").AppendJoin(';', VisibleVolumes(pc).Select(v => v.Key + (Activity.Has(v.Letter) ? "+" : "-"))).Append('|');
             else if (pc.Kind == PanelKind.Network && pc.SeparateAdapters) sb.Append("N:").AppendJoin(';', SelectedAdapters(pc)).Append('|');
             else if (pc.Kind == PanelKind.Battery) sb.Append("B:").Append(BatteryPresent).Append('|');
-            else if (pc.Kind == PanelKind.Iis && Iis.Installed) sb.Append("I:").Append(IisFormat.Rows(pc, IisStatusNow).Count).Append('|');   // sites/pools appearing changes the height
+            else if (sources.GetValueOrDefault(pc.Kind) is PerItemSource ps) sb.Append(pc.Kind).Append(':').Append(ps.LayoutSignature(pc)).Append('|');   // a site or VM appearing adds a line and a row
         }
         return sb.ToString();
     }
@@ -201,7 +204,7 @@ public sealed class Engine : IDisposable
         rt.LegendRow = HasLegendRow(kind);
         switch (kind)
         {
-            case PanelKind.Cpu: case PanelKind.Ram: case PanelKind.Gpu: case PanelKind.Battery: case PanelKind.Iis: rt.Source = SourceFor(kind); break;
+            case PanelKind.Cpu: case PanelKind.Ram: case PanelKind.Gpu: case PanelKind.Battery: case PanelKind.Iis: case PanelKind.HyperV: rt.Source = SourceFor(kind); break;
             case PanelKind.Network:
                 if (rt.Source is not NetView nv || nv.Adapter != (rt.Sub == "" ? null : rt.Sub)) rt.Source = new NetView(Net, rt.Sub == "" ? null : rt.Sub);
                 break;
@@ -215,15 +218,25 @@ public sealed class Engine : IDisposable
 
         if (rt.Source != null)
         {
-            ReconcileLines(pc, rt.Source); rt.Source.Configure(pc);
+            if (!(rt.Source is PerItemSource { Ready: false } && pc.Lines.Count > 0)) ReconcileLines(pc, rt.Source);
+            rt.Source.Configure(pc);
             var t = new TimeLayout(plotCells, pc.SplitPercent, pc.LiveSeconds, pc.HistorySeconds, Config.Global.TickMs);
-            string key = $"{plotCells}|{Config.Global.TickMs}|{pc.LiveSeconds}|{pc.HistorySeconds}|{pc.SplitPercent}|{pc.History}|{pc.Lines.Count}";
+            string key = $"{plotCells}|{Config.Global.TickMs}|{pc.LiveSeconds}|{pc.HistorySeconds}|{pc.SplitPercent}|{pc.History}";
+            var lineKeys = pc.Lines.Select(l => l.Key).ToArray();
             if (key != rt.TimingKey)
             {
                 rt.TimingKey = key; rt.Layout = t;
                 rt.Series = pc.Lines.Select(_ => new SeriesBuffer(t, pc.History)).ToArray();
-                rt.Latest = Enumerable.Repeat(float.NaN, pc.Lines.Count).ToArray();
             }
+            else if (!lineKeys.SequenceEqual(rt.SeriesKeys))
+            {
+                // Lines added or removed (a site or VM came or went, a CPU thread count changed): keep every surviving
+                // line's history, matched by key, and start only the new ones empty.
+                var old = rt.SeriesKeys.Zip(rt.Series).ToDictionary(x => x.First, x => x.Second);
+                rt.Series = lineKeys.Select(k => old.TryGetValue(k, out var b) ? b : new SeriesBuffer(t, pc.History)).ToArray();
+            }
+            if (rt.Latest.Length != lineKeys.Length) rt.Latest = Enumerable.Repeat(float.NaN, lineKeys.Length).ToArray();
+            rt.SeriesKeys = lineKeys;
         }
 
         if (kind == PanelKind.Drives)
@@ -232,12 +245,11 @@ public sealed class Engine : IDisposable
             rt.PlotTopOffset = DriveHeader; rt.PlotHeight = pc.Height;
             rt.Height = Math.Max(26, DriveHeader + (act ? pc.Height + 4 : 0) + (pc.ShowSpaceBar ? DriveBar : 0) + 4);
         }
-        else if (kind == PanelKind.Iis)
+        else if (rt.Source is PerItemSource ps)
         {
-            // Graph (pc.Height) under the title + legend, then one RowProc per site/pool row.
+            // IIS / Hyper-V: graph (pc.Height) under the title + legend, then one RowProc per site/pool/VM row.
             rt.PlotTopOffset = Header - 2 + LegendRowH; rt.PlotHeight = pc.Height;
-            rt.Iis = IisStatusNow;
-            rt.Height = rt.PlotTopOffset + pc.Height + 6 + IisFormat.Rows(pc, rt.Iis).Count * RowProc + 4;
+            rt.Height = rt.PlotTopOffset + pc.Height + 6 + ps.RowCount(pc) * RowProc + 4;
         }
         else if (rt.Source != null)
         {
@@ -271,7 +283,6 @@ public sealed class Engine : IDisposable
                 p.Source.Sample(vals);
                 for (int i = 0; i < vals.Length && i < p.Series.Length; i++) p.Series[i].Push(vals[i]);
                 p.Latest = vals; p.Readout = p.Source.Readout(vals);
-                if (p.Source is IisSource iisSrc) p.Iis = iisSrc.Status;
                 p.ScaleMax = p.Cfg.Scale == ScaleMode.Fixed ? Math.Max(1, p.Cfg.FixedMax) : AutoScale(p);
             }
             else if (p.Cfg.Kind == PanelKind.TopProcesses && doProc)
@@ -353,5 +364,6 @@ public sealed class Engine : IDisposable
         if (ownsBattery) battery?.Dispose();
         if (ownsWeather) weather?.Dispose();
         if (ownsIis) iis?.Dispose();
+        if (ownsHyperV) hyperV?.Dispose();
     }
 }
