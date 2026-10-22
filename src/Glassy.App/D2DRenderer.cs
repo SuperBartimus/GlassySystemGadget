@@ -266,7 +266,7 @@ public sealed class D2DRenderer : IDisposable
 
     static string TitleOf(PanelRuntime p) => p.Title != "" ? p.Title : p.Cfg.Kind switch
     {
-        PanelKind.Cpu => "CPU", PanelKind.Ram => "Memory", PanelKind.Gpu => "GPU", PanelKind.Network => "Network", PanelKind.TopProcesses => "Top processes", PanelKind.Iis => "IIS", PanelKind.HyperV => "Hyper-V", _ => "",
+        PanelKind.Cpu => "CPU", PanelKind.Ram => "Memory", PanelKind.Gpu => "GPU", PanelKind.Network => "Network", PanelKind.TopProcesses => "Top processes", PanelKind.Iis => "IIS", PanelKind.HyperV => "Hyper-V", PanelKind.FileShare => "File shares", _ => "",
     };
 
     float Measure(string s, IDWriteTextFormat f)
@@ -359,6 +359,7 @@ public sealed class D2DRenderer : IDisposable
         Text(p.Source.Format((float)p.ScaleMax), fSmall, plot.Left + 2, plot.Top + 1, plot.Left + 90, plot.Top + 14, Br(TitleCol, 0.45f));
         if (p.Source is IisSource iis) IisRows(p, iis, l, r, plot.Bottom + 6, txt, dim);
         if (p.Source is HyperVSource hv) HyperVRows(p, hv, l, r, plot.Bottom + 6, txt, dim);
+        if (p.Source is FileShareSource fs) FileShareRows(p, fs, l, r, plot.Bottom + 6, txt, dim);
     }
 
     /// <summary>A per-item row's dot is the colour of that item's graph line, so the row doubles as the legend;
@@ -370,6 +371,34 @@ public sealed class D2DRenderer : IDisposable
 
     /// <summary>One row per VM: dot (its CPU line's colour while running, else grey off / violet saved-paused / amber
     /// transitional), name, CPU, assigned memory, then uptime while running or the state word otherwise.</summary>
+    /// <summary>One row per share: dot (its throughput line's colour), name, open files, current read + write rate, and a
+    /// short used-space bar on the load ramp (left empty when the share's path can't be measured).</summary>
+    void FileShareRows(PanelRuntime p, FileShareSource src, float l, float r, float y, ID2D1Brush txt, ID2D1Brush dim)
+    {
+        foreach (var row in FileShareFormat.Rows(p.Cfg, src.Status))
+        {
+            if (row.Kind == FileShareRowKind.Header) Text(row.Text, fSmall, l, y + 2, r, y + 15, Br(TitleCol, 0.5f));
+            else if (row.Kind == FileShareRowKind.Note) Text(row.Text, fBody, l + 12, y, r, y + 15, dim);
+            else
+            {
+                var s = row.Share;
+                Dot(l, y, LineColour(p, src, s.Name, ((byte)124, (byte)255, (byte)107)));
+                Text(row.Text, fBody, l + 12, y, r - 150, y + 15, txt);
+                Text($"{s.OpenFiles:0} open", fSmallR, r - 150, y + 2, r - 100, y + 15, s.OpenFiles > 0 ? txt : dim);
+                Text(Fmt.Bytes(s.Bps) + "/s", fBodyR, r - 100, y, r - 40, y + 15, s.Bps > 0 ? txt : dim);
+                float bl = r - 32, bt = y + 6;
+                dc.FillRoundedRectangle(new RoundedRectangle(new RawRectF(bl, bt, r, bt + 4), 2, 2), Br(255, 255, 255, 0.10f));
+                if (s.Total > 0)
+                {
+                    double used = 1 - s.Free / s.Total;
+                    float fw = (float)Math.Clamp(used, 0, 1) * (r - bl);
+                    if (fw > 1) dc.FillRoundedRectangle(new RoundedRectangle(new RawRectF(bl, bt, bl + fw, bt + 4), 2, 2), Br(Fmt.LoadColor(used), 0.9f));
+                }
+            }
+            y += Engine.RowProc;
+        }
+    }
+
     void HyperVRows(PanelRuntime p, HyperVSource src, float l, float r, float y, ID2D1Brush txt, ID2D1Brush dim)
     {
         foreach (var row in HyperVFormat.Rows(p.Cfg, src.Status))

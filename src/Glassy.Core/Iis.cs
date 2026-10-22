@@ -72,6 +72,15 @@ public static class IisFormat
 /// <summary>Reads every instance of one wildcard PDH counter ("\Web Service(*)\Current Connections") in one call.</summary>
 public static class PdhInstances
 {
+    /// <summary>The name a thing goes by in counter instance names: PDH rewrites "(" ")" as "[" "]" and "#" "/" "\" as "_",
+    /// so a VM "Helvm (Ubuntu)" is "Helvm [Ubuntu]" there and would never match the WMI or registry name as-is.</summary>
+    public static string CounterName(string name) =>
+        name.Replace('(', '[').Replace(')', ']').Replace('#', '_').Replace('/', '_').Replace('\\', '_');
+
+    /// <summary>One non-wildcard counter's value, or NaN when the counter is missing or has no valid reading yet.</summary>
+    public static double Single(IntPtr counter) =>
+        counter != IntPtr.Zero && Native.PdhGetFormattedCounterValue(counter, Native.PDH_FMT_DOUBLE, out _, out var v) == 0 && v.Status <= Native.PDH_CSTATUS_NEW_DATA ? v.Value : double.NaN;
+
     public static Dictionary<string, double> Read(IntPtr counter)
     {
         var result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);

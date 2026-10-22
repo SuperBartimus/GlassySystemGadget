@@ -65,6 +65,7 @@ public sealed class Engine : IDisposable
     IWeatherProvider weather; readonly bool ownsWeather;
     IIisProvider iis; readonly bool ownsIis;
     IHyperVProvider hyperV; readonly bool ownsHyperV;
+    IFileShareProvider shares; readonly bool ownsShares;
     DriveActivityHub activity;
     ProcessSampler procs;
     readonly ClipboardStore clipboard;
@@ -78,7 +79,7 @@ public sealed class Engine : IDisposable
     public static string ClipboardDirFor(string configPath) => Path.Combine(Path.GetDirectoryName(configPath)!, "Clipboard");
     public static string DefaultClipboardDir => ClipboardDirFor(ConfigStore.DefaultPath);
 
-    public Engine(AppConfig cfg, IVolumeProvider volumes = null, INetProvider net = null, ClipboardStore clipboard = null, string configPath = null, IBatteryProvider battery = null, IWeatherProvider weather = null, IIisProvider iis = null, IHyperVProvider hyperV = null)
+    public Engine(AppConfig cfg, IVolumeProvider volumes = null, INetProvider net = null, ClipboardStore clipboard = null, string configPath = null, IBatteryProvider battery = null, IWeatherProvider weather = null, IIisProvider iis = null, IHyperVProvider hyperV = null, IFileShareProvider shares = null)
     {
         this.volumes = volumes; ownsVolumes = volumes == null;
         this.net = net; ownsNet = net == null;
@@ -86,6 +87,7 @@ public sealed class Engine : IDisposable
         this.weather = weather; ownsWeather = weather == null;
         this.iis = iis; ownsIis = iis == null;
         this.hyperV = hyperV; ownsHyperV = hyperV == null;
+        this.shares = shares; ownsShares = shares == null;
         this.clipboard = clipboard ?? new ClipboardStore(ClipboardDirFor(configPath ?? ConfigStore.DefaultPath));
         initialUptimeRecordSeconds = cfg.Global.UptimeRecordSeconds;   // captured once, before this session's own ticks can raise it, so "new record" means genuinely new
         Apply(cfg);
@@ -97,6 +99,7 @@ public sealed class Engine : IDisposable
     IWeatherProvider Weather => weather ??= new OpenMeteoWeatherProvider();
     IIisProvider Iis => iis ??= new PdhIisProvider();
     IHyperVProvider HyperV => hyperV ??= new PdhHyperVProvider();
+    IFileShareProvider Shares => shares ??= new PdhFileShareProvider();
     DriveActivityHub Activity => activity ??= new DriveActivityHub();
     /// <summary>Bypasses the poll interval on the next Tick - Settings' manual "Refresh now" button and a fresh
     /// device-location resolution both call this.</summary>
@@ -107,7 +110,7 @@ public sealed class Engine : IDisposable
     IPanelSource SourceFor(PanelKind k)
     {
         if (sources.TryGetValue(k, out var s)) return s;
-        s = k switch { PanelKind.Cpu => new CpuSource(), PanelKind.Ram => new RamSource(), PanelKind.Gpu => new GpuSource(), PanelKind.Battery => new BatterySource(() => Battery.Snapshot), PanelKind.Iis => new IisSource(() => Iis), PanelKind.HyperV => new HyperVSource(() => HyperV), _ => null };
+        s = k switch { PanelKind.Cpu => new CpuSource(), PanelKind.Ram => new RamSource(), PanelKind.Gpu => new GpuSource(), PanelKind.Battery => new BatterySource(() => Battery.Snapshot), PanelKind.Iis => new IisSource(() => Iis), PanelKind.HyperV => new HyperVSource(() => HyperV), PanelKind.FileShare => new FileShareSource(() => Shares), _ => null };
         if (s != null) sources[k] = s;
         return s;
     }
@@ -120,7 +123,7 @@ public sealed class Engine : IDisposable
         p.Lines = defaults.Select(d => byKey.TryGetValue(d.Key, out var have) ? have : d).ToList();
     }
 
-    static bool HasLegendRow(PanelKind k) => k == PanelKind.Ram || k == PanelKind.Gpu || k == PanelKind.Network || k == PanelKind.Iis || k == PanelKind.HyperV;
+    static bool HasLegendRow(PanelKind k) => k == PanelKind.Ram || k == PanelKind.Gpu || k == PanelKind.Network || k == PanelKind.Iis || k == PanelKind.HyperV || k == PanelKind.FileShare;
 
     IEnumerable<VolumeRow> VisibleVolumes(PanelConfig pc) =>
         Volumes.Snapshot.Where(v => !pc.HiddenDrives.Contains(v.Letter, StringComparer.OrdinalIgnoreCase));
@@ -138,6 +141,7 @@ public sealed class Engine : IDisposable
         PanelKind.Battery => batteryPresent,
         PanelKind.Iis => Iis.Installed,
         PanelKind.HyperV => HyperV.Installed,
+        PanelKind.FileShare => Shares.Installed,
         _ => true,
     };
 
@@ -204,7 +208,7 @@ public sealed class Engine : IDisposable
         rt.LegendRow = HasLegendRow(kind);
         switch (kind)
         {
-            case PanelKind.Cpu: case PanelKind.Ram: case PanelKind.Gpu: case PanelKind.Battery: case PanelKind.Iis: case PanelKind.HyperV: rt.Source = SourceFor(kind); break;
+            case PanelKind.Cpu: case PanelKind.Ram: case PanelKind.Gpu: case PanelKind.Battery: case PanelKind.Iis: case PanelKind.HyperV: case PanelKind.FileShare: rt.Source = SourceFor(kind); break;
             case PanelKind.Network:
                 if (rt.Source is not NetView nv || nv.Adapter != (rt.Sub == "" ? null : rt.Sub)) rt.Source = new NetView(Net, rt.Sub == "" ? null : rt.Sub);
                 break;
@@ -365,5 +369,6 @@ public sealed class Engine : IDisposable
         if (ownsWeather) weather?.Dispose();
         if (ownsIis) iis?.Dispose();
         if (ownsHyperV) hyperV?.Dispose();
+        if (ownsShares) shares?.Dispose();
     }
 }

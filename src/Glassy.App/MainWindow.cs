@@ -52,6 +52,7 @@ public sealed class MainWindow : Form
         lastStartup = Startup.IsEnabled();
 
         menu.Items.Add("Settings...", null, (_, _) => OpenSettings());
+        menu.Items.Add("Check for updates...", null, (_, _) => CheckForUpdates(null));
         lockItem.Click += (_, _) => { cfg.Global.LockPosition = !cfg.Global.LockPosition; lockItem.Checked = cfg.Global.LockPosition; Dirty(); };
         menu.Items.Add(lockItem);
         menu.Items.Add("Reset position", null, (_, _) => { cfg.Global.X = 40; cfg.Global.Y = 40; ApplyAll(); Dirty(); });
@@ -450,6 +451,50 @@ public sealed class MainWindow : Form
         }
         catch (Exception ex) when (ex is Win32Exception || ex is IOException) { AppLog.Write("restart failed: " + ex.Message); return; }
         Close();
+    }
+
+    /// <summary>Right-click menu and the About page both land here. A newer release on an installed copy is installed by
+    /// running install.ps1 in a visible PowerShell window - it stops this process, replaces the files and starts the new
+    /// one. A copy running from anywhere else (a source build) is only pointed at the release page.</summary>
+    public static async void CheckForUpdates(IWin32Window owner)
+    {
+        const string title = "Glassy System Gadget";
+        var current = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+        string have = current == null ? "dev" : $"{current.Major}.{current.Minor}.{current.Build}";
+        string tag;
+        try { tag = await Updates.LatestTagAsync(); }
+        catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException || ex is System.Text.Json.JsonException || ex is KeyNotFoundException)
+        {
+            AppLog.Write("update check failed: " + ex.Message);
+            MessageBox.Show(owner, "Couldn't reach GitHub to check for updates.\n\n" + ex.Message, title, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        var latest = Updates.ParseTag(tag);
+        if (!Updates.IsNewer(latest, current))
+        {
+            MessageBox.Show(owner, $"You're up to date (v{have}).", title, MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        string installDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GlassySystemGadget");
+        bool installed = string.Equals(Path.GetFullPath(AppContext.BaseDirectory).TrimEnd('\\'), installDir, StringComparison.OrdinalIgnoreCase);
+        if (!installed)
+        {
+            if (MessageBox.Show(owner, $"{tag} is available (this is v{have}).\n\nThis copy isn't the installed one, so it can't update itself. Open the release page?",
+                    title, MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
+                OpenUrl(Updates.ReleasesPage);
+            return;
+        }
+        if (MessageBox.Show(owner, $"{tag} is available (this is v{have}).\n\nInstall it now? The gadget closes, updates and starts again; a PowerShell window shows the progress.",
+                title, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        // A failing install would otherwise close its window before the error can be read.
+        string script = $"try {{ irm {Updates.InstallScript} | iex }} catch {{ Write-Host $_ -ForegroundColor Red; Read-Host 'Update failed - press Enter to close' }}";
+        try { Process.Start(new ProcessStartInfo("powershell.exe", $"-NoProfile -ExecutionPolicy Bypass -Command \"{script}\"") { UseShellExecute = true }); }
+        catch (Win32Exception ex) { AppLog.Write("update launch failed: " + ex.Message); MessageBox.Show(owner, "Couldn't start PowerShell: " + ex.Message, title); }
+    }
+
+    static void OpenUrl(string url)
+    {
+        try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch (Win32Exception) { }
     }
 
     void OnSession(object s, SessionSwitchEventArgs e)

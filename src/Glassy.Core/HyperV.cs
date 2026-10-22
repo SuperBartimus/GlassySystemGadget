@@ -66,11 +66,6 @@ public static class HyperVFormat
         return i > 0 ? instance.Substring(0, i) : "";
     }
 
-    /// <summary>The name a VM goes by in counter instance names: PDH rewrites "(" ")" as "[" "]" and "#" "/" "\" as "_",
-    /// so "Helvm (Ubuntu)" is "Helvm [Ubuntu]" there and would never match the WMI name as-is.</summary>
-    public static string CounterName(string vm) =>
-        vm.Replace('(', '[').Replace(')', ']').Replace('#', '_').Replace('/', '_').Replace('\\', '_');
-
     /// <summary>Merges the WMI VM list (null when denied) with the per-VM counters. Without WMI the list is just the
     /// VMs the counters report, i.e. the running ones.</summary>
     public static HyperVStatus Merge(List<(string Name, int State, double UptimeMs)> wmi, string wmiError, Dictionary<string, double> vpRun, Dictionary<string, double> memMB, double hostCpu)
@@ -82,8 +77,8 @@ public static class HyperVFormat
         if (wmi != null)
         {
             s.FullList = true;
-            s.Vms = wmi.Select(v => new HyperVVm(v.Name, v.State, v.State == 2 ? cpu.GetValueOrDefault(CounterName(v.Name), double.NaN) : double.NaN,
-                v.State == 2 ? memMB.GetValueOrDefault(CounterName(v.Name), double.NaN) : double.NaN, v.UptimeMs > 0 ? TimeSpan.FromMilliseconds(v.UptimeMs) : null)).ToList();
+            s.Vms = wmi.Select(v => new HyperVVm(v.Name, v.State, v.State == 2 ? cpu.GetValueOrDefault(PdhInstances.CounterName(v.Name), double.NaN) : double.NaN,
+                v.State == 2 ? memMB.GetValueOrDefault(PdhInstances.CounterName(v.Name), double.NaN) : double.NaN, v.UptimeMs > 0 ? TimeSpan.FromMilliseconds(v.UptimeMs) : null)).ToList();
         }
         else
         {
@@ -182,9 +177,6 @@ public sealed class PdhHyperVProvider : IHyperVProvider
         });
     }
 
-    double Single(IntPtr counter) =>
-        counter != IntPtr.Zero && Native.PdhGetFormattedCounterValue(counter, Native.PDH_FMT_DOUBLE, out _, out var v) == 0 && v.Status <= Native.PDH_CSTATUS_NEW_DATA ? v.Value : double.NaN;
-
     public HyperVStatus Sample()
     {
         if (!Installed) return new HyperVStatus { Note = "Hyper-V not installed" };
@@ -195,7 +187,7 @@ public sealed class PdhHyperVProvider : IHyperVProvider
         return HyperVFormat.Merge(wmiVms, wmiError,
             counters && vp != IntPtr.Zero ? PdhInstances.Read(vp) : none,
             counters && mem != IntPtr.Zero ? PdhInstances.Read(mem) : none,
-            counters ? Single(host) : double.NaN);
+            counters ? PdhInstances.Single(host) : double.NaN);
     }
 
     public void Dispose() { if (query != IntPtr.Zero) Native.PdhCloseQuery(query); query = IntPtr.Zero; }

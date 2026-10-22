@@ -10,13 +10,13 @@ public sealed class SettingsForm : Form
     static readonly Color Bg = Color.FromArgb(28, 20, 40), Bg2 = Color.FromArgb(42, 31, 60), Fg = Color.FromArgb(235, 225, 250), Dim = Color.FromArgb(170, 155, 195);
     readonly AppConfig cfg; readonly Engine engine; readonly Action changed;
     readonly ListBox nav = new(); readonly Panel host = new();
-    static readonly PanelKind[] Kinds = { PanelKind.Cpu, PanelKind.Ram, PanelKind.Gpu, PanelKind.Network, PanelKind.Drives, PanelKind.TopProcesses, PanelKind.Uptime, PanelKind.Clipboard, PanelKind.Battery, PanelKind.Weather, PanelKind.Iis, PanelKind.HyperV };
+    static readonly PanelKind[] Kinds = { PanelKind.Cpu, PanelKind.Ram, PanelKind.Gpu, PanelKind.Network, PanelKind.Drives, PanelKind.TopProcesses, PanelKind.Uptime, PanelKind.Clipboard, PanelKind.Battery, PanelKind.Weather, PanelKind.Iis, PanelKind.HyperV, PanelKind.FileShare };
 
     static string PageName(PanelKind k) => k switch
     {
         PanelKind.Cpu => "CPU", PanelKind.Ram => "Memory", PanelKind.Gpu => "GPU", PanelKind.Network => "Network",
         PanelKind.Drives => "Drives", PanelKind.TopProcesses => "Top processes", PanelKind.Clipboard => "Clipboard", PanelKind.Battery => "Battery",
-        PanelKind.Weather => "Weather", PanelKind.Iis => "IIS", PanelKind.HyperV => "Hyper-V", _ => "Uptime",
+        PanelKind.Weather => "Weather", PanelKind.Iis => "IIS", PanelKind.HyperV => "Hyper-V", PanelKind.FileShare => "File shares", _ => "Uptime",
     };
 
     public SettingsForm(AppConfig cfg, Engine engine, Action changed)
@@ -188,7 +188,10 @@ public sealed class SettingsForm : Form
         var stack = new Panel { Dock = DockStyle.Top, AutoSize = true };
         var t = Table();
         var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
-        Row(t, "Version", new Label { Text = version != null ? $"{version.Major}.{version.Minor}.{version.Build}" : "dev", AutoSize = true });
+        var ver = new FlowLayoutPanel { AutoSize = true, Margin = new Padding(0), WrapContents = false };
+        ver.Controls.Add(new Label { Text = version != null ? $"{version.Major}.{version.Minor}.{version.Build}" : "dev", AutoSize = true, Margin = new Padding(0, 6, 12, 0) });
+        ver.Controls.Add(Btn("Check for updates", () => MainWindow.CheckForUpdates(this)));
+        Row(t, "Version", ver);
         Row(t, "Author", new Label { Text = "Bart Strauss", AutoSize = true });
         var link = new LinkLabel { Text = "github.com/SuperBartimus/GlassySystemGadget", AutoSize = true, LinkColor = Color.FromArgb(180, 140, 255) };
         link.Click += (_, _) => { try { Process.Start(new ProcessStartInfo("https://github.com/SuperBartimus/GlassySystemGadget") { UseShellExecute = true }); } catch (System.ComponentModel.Win32Exception) { } };
@@ -248,7 +251,7 @@ public sealed class SettingsForm : Form
         var p = cfg.Panels.FirstOrDefault(x => x.Kind == kind);
         var stack = new Panel { Dock = DockStyle.Top, AutoSize = true };
         if (p == null) { stack.Controls.Add(Note("This panel is not in the current config. Use Reset on the General page.")); return stack; }
-        bool series = kind == PanelKind.Cpu || kind == PanelKind.Ram || kind == PanelKind.Gpu || kind == PanelKind.Network || kind == PanelKind.Drives || kind == PanelKind.Iis || kind == PanelKind.HyperV;
+        bool series = kind == PanelKind.Cpu || kind == PanelKind.Ram || kind == PanelKind.Gpu || kind == PanelKind.Network || kind == PanelKind.Drives || kind == PanelKind.Iis || kind == PanelKind.HyperV || kind == PanelKind.FileShare;
         var t = Table();
         if (kind == PanelKind.Battery)
             Row(t, "", Note("Shown automatically when Windows reports a battery; there is no manual on/off for it."));
@@ -270,7 +273,7 @@ public sealed class SettingsForm : Form
         if (series)
         {
             var info = Note(TimeInfo(p)); void Refresh() => info.Text = TimeInfo(p);
-            Row(t, kind == PanelKind.Drives ? "Activity graph height (px)" : kind == PanelKind.Iis || kind == PanelKind.HyperV ? "Graph height (px)" : "Height (px)", Num(kind == PanelKind.Drives || kind == PanelKind.Iis || kind == PanelKind.HyperV ? 20 : 50, 500, p.Height, 0, 5, v => p.Height = (int)v));
+            Row(t, kind == PanelKind.Drives ? "Activity graph height (px)" : kind == PanelKind.Iis || kind == PanelKind.HyperV || kind == PanelKind.FileShare ? "Graph height (px)" : "Height (px)", Num(kind == PanelKind.Drives || kind == PanelKind.Iis || kind == PanelKind.HyperV || kind == PanelKind.FileShare ? 20 : 50, 500, p.Height, 0, 5, v => p.Height = (int)v));
             if (kind == PanelKind.Drives)
             {
                 Row(t, "", Chk("Show activity graph (read / write)", p.ShowActivity, v => p.ShowActivity = v));
@@ -297,6 +300,15 @@ public sealed class SettingsForm : Form
                     "Each running VM gets its own CPU line, coloured like its dot. CPU and memory come from performance " +
                     "counters; the full VM list, state and uptime come from WMI, which needs admin or membership in " +
                     "Hyper-V Administrators - without it, only running VMs are listed."));
+            }
+            if (kind == PanelKind.FileShare)
+            {
+                Row(t, "Max share rows", Num(1, 50, p.FsMaxRows, 0, 1, v => p.FsMaxRows = (int)v));
+                t.Controls.Add(new Label());
+                t.Controls.Add(Note("Appears only on a machine that shares folders (the automatic admin shares like C$ " +
+                    "don't count). Read and write are SMB traffic across all shares; each share gets its own throughput line, " +
+                    "coloured like its dot. Rows show open files, current throughput and how full the share's disk is. " +
+                    "The header shows connected sessions and open files server-wide."));
             }
             Row(t, "Live side shows (seconds)", Num(2, 7200, (decimal)p.LiveSeconds, 0, 5, v => { p.LiveSeconds = (double)v; Refresh(); }));
             Row(t, "History side shows (hours)", Num(0.05m, 336, (decimal)(p.HistorySeconds / 3600), 2, 0.5m, v => { p.HistorySeconds = (double)v * 3600; Refresh(); }));

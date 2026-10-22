@@ -70,6 +70,13 @@ Panels (each its own graph group, reorderable, individually switchable):
   come from WMI, which needs admin or membership in Hyper-V
   Administrators; without it, running VMs are still listed from the
   performance counters and the panel says what's missing.
+- File shares: shown only on a machine that shares folders (the automatic
+  admin shares like C$ don't count). A graph of SMB read and write
+  bytes/sec plus one throughput line per share, then a row per share: open
+  files, current throughput and a small bar for how full its disk is. The
+  header shows connected sessions and open files server-wide. Shares come
+  from the registry and activity from the "SMB Server Shares" / "Server"
+  performance counters - no WMI.
 
 Memory, GPU, Network and the drive graphs carry a tiny legend of the lines that
 are switched on (network and drives include the current values).
@@ -142,7 +149,10 @@ exit or first settings change). Hover the widget and a settings gear appears
 in the top-right corner (the widget deliberately never takes focus, so this
 is the discoverable way in without right-clicking). Launching the app a
 second time also opens Settings in the running widget. Right-click the widget
-for Settings, Lock position, Reset position and Exit.
+for Settings, Check for updates, Lock position, Reset position, Restart
+and Exit. Check for updates (also a button on the About page) asks GitHub
+for the latest release; on a copy installed by `install.ps1` it offers to
+run the installer again, which closes, updates and restarts the widget.
 
 ## Settings
 
@@ -171,8 +181,10 @@ for Settings, Lock position, Reset position and Exit.
   sites / show pools, and a per-list row cap (extra rows fold into the
   list's header, e.g. "Sites  8 of 12"); Hyper-V adds graph height, show
   off/saved/paused VMs, and a VM row cap. Per-site and per-VM lines can be
-  recoloured or switched off individually like any other graph line.
-- About: version, author and a link back to this repo.
+  recoloured or switched off individually like any other graph line; File
+  shares adds graph height and a share row cap.
+- About: version (with a Check for updates button), author and a link back
+  to this repo.
 - Changing a graph's durations or split restarts that graph's history.
 
 ## Build And Test
@@ -181,15 +193,17 @@ for Settings, Lock position, Reset position and Exit.
 dotnet test GlassySystemGadget\tests\Glassy.Tests -c Release
 ```
 
-138 tests: ring/bucket maths, config round trip (incl. the theme colours and
+148 tests: ring/bucket maths, config round trip (incl. the theme colours and
 per-panel background override), theme preset validity, corrupt-file recovery and
 migration (of the old disk panels, and to add the Clipboard, Battery,
-Weather, IIS and Hyper-V panels to a config that predates them; a config from a newer
-version loses only the panels this one doesn't know), IIS and Hyper-V role
+Weather, IIS, Hyper-V and File shares panels to a config that predates them; a config from a newer
+version loses only the panels this one doesn't know), IIS, Hyper-V and file share role
 detection, row layout, pool and VM states, per-site/per-VM lines (a new one
 keeps the others' history, a custom colour survives a restart, duplicate VM
 names, names the counters spell differently), merging the WMI VM list with the counters (and falling back without
-WMI), a real wildcard performance-counter read and a real WMI query, the raw NtQuerySystemInformation
+WMI), matching share counters to registry shares (scoped instances, renamed
+characters, inactive shares left out), share paths from the registry, the
+update check's version comparison, a real wildcard performance-counter read and a real WMI query, the raw NtQuerySystemInformation
 offsets (checked against this process, including a buffer-growth regression this
 fixed), real CPU, RAM, drive, network and GPU sampling, autostart launcher
 quoting, the load and discharge colour ramps, clipboard classification and
@@ -281,12 +295,23 @@ not touched.
 - Hyper-V: the WMI VM list, states, uptime and host CPU are confirmed on a
   real host (v0.8.0). Per-VM CPU and memory for VMs whose names contain
   `(`, `)`, `#`, `/` or `\` could not be matched in v0.8.0 (performance counters
-  rename those characters) and are fixed in v0.8.1, not yet re-checked on
-  a host. Memory comes from the "Hyper-V Dynamic Memory VM" counters, so a
+  rename those characters); fixed in v0.8.1 and confirmed on a real host.
+  Memory comes from the "Hyper-V Dynamic Memory VM" counters, so a
   VM with static memory may show none. VM CPU is the average of the VM's
   own virtual processors (not a share of the host), so a VM with 4
   processors pegging one reads 25%. Failures are logged to `glassy.log`
   with their error codes.
+- File shares: checked against real shares and SMB counters on the dev
+  machine, which runs as admin - reading them as a standard user is
+  unverified (if the counters can't be read, the panel says so and
+  `glassy.log` records the PDH error code). Whether the panel appears is
+  decided at startup: a machine that starts sharing its first folder needs
+  a restart to show it; after that, new and removed shares appear within
+  10 seconds. A share whose folder is on a volume it can't measure shows
+  an empty disk bar.
+- Check for updates: the version check runs against GitHub's real API;
+  the install step (running `install.ps1` from the widget, which closes
+  and restarts it) has not been run end to end.
 
 ## License
 

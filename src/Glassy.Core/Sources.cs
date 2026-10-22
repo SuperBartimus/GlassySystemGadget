@@ -395,7 +395,7 @@ public abstract class PerItemSource : IPanelSource
 
     public abstract PanelKind Kind { get; }
     public abstract float MinScale { get; }
-    public double UnitBase => 1000;
+    public virtual double UnitBase => 1000;
     public bool LegendWithValues => true;
     protected abstract string Prefix { get; }
     protected abstract IReadOnlyList<LineConfig> FixedLines();

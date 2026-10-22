@@ -144,7 +144,17 @@ static class Program
                 new HyperVVm("old-backup", 3, double.NaN, double.NaN, null),
             },
         } } : null;
-        using var engine = new Engine(cfg, configPath: cfgPath, battery: demoBattery, weather: demoWeather, iis: demoIis, hyperV: demoHyperV); using var r = new D2DRenderer(ForceWarp);
+        const double GB = 1024.0 * 1024 * 1024;
+        var demoShares = demo ? new FakeFileShareProvider { Value = new FileShareStatus
+        {
+            Running = true, Sessions = 7, FilesOpen = 23, ReadBps = 41.5e6, WriteBps = 6.2e6,
+            Shares =
+            {
+                new SmbShare("Media", @"D:\Media", 4, 38e6, 0, 610 * GB, 3700 * GB), new SmbShare("Projects", @"E:\Projects", 17, 3.4e6, 6.1e6, 120 * GB, 950 * GB),
+                new SmbShare("Scans", @"E:\Scans", 2, 0.1e6, 0.1e6, 120 * GB, 950 * GB), new SmbShare("Users$", @"F:\Users", 0, 0, 0, 1800 * GB, 1900 * GB),
+            },
+        } } : null;
+        using var engine = new Engine(cfg, configPath: cfgPath, battery: demoBattery, weather: demoWeather, iis: demoIis, hyperV: demoHyperV, shares: demoShares); using var r = new D2DRenderer(ForceWarp);
         for (int i = 0; i < 6; i++) { engine.Tick(); Thread.Sleep(cfg.Global.TickMs); }
         if (demo) { engine.DemoFill(); DemoFillClipboard(engine); r.ShowSettingsGear = true; }   // showcase the hover-only Settings gear in demo shots
         r.Resize(cfg.Global.Width, engine.TotalHeight, scale); r.Render(engine, cfg.Global);
