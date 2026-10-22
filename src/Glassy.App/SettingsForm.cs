@@ -9,6 +9,7 @@ public sealed class SettingsForm : Form
 {
     static readonly Color Bg = Color.FromArgb(28, 20, 40), Bg2 = Color.FromArgb(42, 31, 60), Fg = Color.FromArgb(235, 225, 250), Dim = Color.FromArgb(170, 155, 195);
     readonly AppConfig cfg; readonly Engine engine; readonly Action changed;
+    readonly Updater updater;   // null in --selftest
     readonly ListBox nav = new(); readonly Panel host = new();
     static readonly PanelKind[] Kinds = { PanelKind.Cpu, PanelKind.Ram, PanelKind.Gpu, PanelKind.Network, PanelKind.Drives, PanelKind.TopProcesses, PanelKind.Uptime, PanelKind.Clipboard, PanelKind.Battery, PanelKind.Weather, PanelKind.Iis, PanelKind.HyperV, PanelKind.FileShare, PanelKind.AiUsage };
 
@@ -19,9 +20,9 @@ public sealed class SettingsForm : Form
         PanelKind.Weather => "Weather", PanelKind.Iis => "IIS", PanelKind.HyperV => "Hyper-V", PanelKind.FileShare => "File shares", PanelKind.AiUsage => "AI usage", _ => "Uptime",
     };
 
-    public SettingsForm(AppConfig cfg, Engine engine, Action changed)
+    public SettingsForm(AppConfig cfg, Engine engine, Action changed, Updater updater = null)
     {
-        this.cfg = cfg; this.engine = engine; this.changed = changed;
+        this.cfg = cfg; this.engine = engine; this.changed = changed; this.updater = updater;
         Text = "Glassy System Gadget - Settings"; ClientSize = new Size(820, 640); MinimumSize = new Size(700, 480);
         StartPosition = FormStartPosition.CenterScreen; BackColor = Bg; ForeColor = Fg; Font = new Font("Segoe UI", 9f);
         nav.Dock = DockStyle.Left; nav.Width = 170; nav.BackColor = Bg2; nav.ForeColor = Fg; nav.BorderStyle = BorderStyle.None;
@@ -32,7 +33,7 @@ public sealed class SettingsForm : Form
             e.Graphics.FillRectangle(new SolidBrush(e.State.HasFlag(DrawItemState.Selected) ? Color.FromArgb(90, 50, 130) : Bg2), e.Bounds);
             TextRenderer.DrawText(e.Graphics, nav.Items[e.Index].ToString(), nav.Font, new Rectangle(e.Bounds.X + 12, e.Bounds.Y, e.Bounds.Width - 12, e.Bounds.Height), Fg, TextFormatFlags.VerticalCenter | TextFormatFlags.Left);
         };
-        nav.Items.Add("General"); nav.Items.Add("Theme"); foreach (var k in Kinds) nav.Items.Add(PageName(k)); nav.Items.Add("About");
+        nav.Items.Add("General"); nav.Items.Add("Theme"); foreach (var k in Kinds) nav.Items.Add(PageName(k)); nav.Items.Add("Updates"); nav.Items.Add("About");
         host.Dock = DockStyle.Fill; host.AutoScroll = true; host.BackColor = Bg;
         Controls.Add(host); Controls.Add(nav);
         nav.SelectedIndexChanged += (_, _) => ShowPage(nav.SelectedIndex);
@@ -40,17 +41,33 @@ public sealed class SettingsForm : Form
     }
 
     /// <summary>Headless check (--selftest): builds every page against live data and returns how many were built.</summary>
+    bool shotMode;
+    protected override bool ShowWithoutActivation => shotMode;
+
+    /// <summary>--selftest --page: renders one page to a PNG. WinForms only paints child controls of a shown window, so
+    /// it is shown fully transparent, off-screen, out of the taskbar and without taking focus, then captured.</summary>
+    internal void SavePage(string name, string png)
+    {
+        shotMode = true; Opacity = 0; ShowInTaskbar = false; StartPosition = FormStartPosition.Manual; Location = new Point(-32000, -32000);
+        Show(); Application.DoEvents();
+        nav.SelectedIndex = Math.Max(0, nav.Items.IndexOf(name));
+        Application.DoEvents();
+        using var bmp = new Bitmap(Width, Height);
+        DrawToBitmap(bmp, new Rectangle(0, 0, Width, Height));
+        bmp.Save(png, System.Drawing.Imaging.ImageFormat.Png);
+    }
+
     internal int BuildAllPages()
     {
-        for (int i = 0; i <= Kinds.Length + 2; i++) ShowPage(i);
-        return Kinds.Length + 3;
+        for (int i = 0; i <= Kinds.Length + 3; i++) ShowPage(i);
+        return Kinds.Length + 4;
     }
 
     void ShowPage(int i)
     {
         foreach (Control c in host.Controls) c.Dispose();
         host.Controls.Clear();
-        host.Controls.Add(i == 0 ? GeneralPage() : i == 1 ? ThemePage() : i == Kinds.Length + 2 ? AboutPage() : KindPage(Kinds[i - 2]));
+        host.Controls.Add(i == 0 ? GeneralPage() : i == 1 ? ThemePage() : i == Kinds.Length + 2 ? UpdatesPage() : i == Kinds.Length + 3 ? AboutPage() : KindPage(Kinds[i - 2]));
     }
 
     // ------------------------------------------------------------ control helpers
@@ -65,7 +82,7 @@ public sealed class SettingsForm : Form
         t.Controls.Add(new Label { Text = label, AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 7, 8, 7) });
         c.Margin = new Padding(0, 3, 0, 3); t.Controls.Add(c);
     }
-    Label Note(string s) => new() { Text = s, AutoSize = true, ForeColor = Dim, MaximumSize = new Size(560, 0), Margin = new Padding(0, 4, 0, 4) };
+    Label Note(string s) => new() { Text = s, AutoSize = true, ForeColor = Dim, MaximumSize = new Size(380, 0), Margin = new Padding(0, 4, 0, 4) };
     Label Heading(string s) => new() { Text = s, AutoSize = true, Font = new Font("Segoe UI", 13f, FontStyle.Bold), Padding = new Padding(18, 14, 0, 0), Dock = DockStyle.Top };
 
     NumericUpDown Num(decimal min, decimal max, decimal val, int dec, decimal inc, Action<decimal> set)
@@ -182,16 +199,68 @@ public sealed class SettingsForm : Form
         return stack;
     }
 
+    // ------------------------------------------------------------ Updates page
+    static readonly (UpdateMode Mode, string Text)[] UpdateModes =
+    {
+        (UpdateMode.Notify, "Ask me when a new version is out"),
+        (UpdateMode.Auto, "Install new versions automatically"),
+        (UpdateMode.Off, "Don't check (only when I ask)"),
+    };
+
+    Control UpdatesPage()
+    {
+        var g = cfg.Global;
+        var stack = new Panel { Dock = DockStyle.Top, AutoSize = true };
+        var t = Table();
+        var ver = new FlowLayoutPanel { AutoSize = true, Margin = new Padding(0), WrapContents = false };
+        ver.Controls.Add(new Label { Text = Updater.CurrentText, AutoSize = true, Margin = new Padding(0, 6, 12, 0) });
+        var result = new Label { AutoSize = true, ForeColor = Dim, Margin = new Padding(0, 6, 0, 0), Text = updater?.LastResult ?? "" };
+        ver.Controls.Add(Btn("Check now", async () =>
+        {
+            if (updater == null) return;
+            await updater.CheckNow(this);
+            if (!result.IsDisposed) result.Text = updater.LastResult;
+        }));
+        Row(t, "Version", ver);
+        Row(t, "", result);
+
+        var mode = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 300, BackColor = Bg2, ForeColor = Fg, FlatStyle = FlatStyle.Flat };
+        foreach (var (_, text) in UpdateModes) mode.Items.Add(text);
+        mode.SelectedIndex = Math.Max(0, Array.FindIndex(UpdateModes, x => x.Mode == g.UpdateMode));
+        mode.SelectedIndexChanged += (_, _) => { g.UpdateMode = UpdateModes[mode.SelectedIndex].Mode; changed(); };
+        Row(t, "New versions", mode);
+        Row(t, "Check every (hours)", Num(1, 168, g.UpdateCheckHours, 0, 1, v => g.UpdateCheckHours = (int)v));
+        Row(t, "", Chk("Install automatically only overnight (1-5 AM)", g.UpdateOvernightOnly, v => g.UpdateOvernightOnly = v));
+        if (g.UpdateSkipVersion != "")
+        {
+            var skip = new FlowLayoutPanel { AutoSize = true, Margin = new Padding(0), WrapContents = false };
+            skip.Controls.Add(new Label { Text = g.UpdateSkipVersion, AutoSize = true, Margin = new Padding(0, 6, 12, 0) });
+            skip.Controls.Add(Btn("Stop skipping", () => { g.UpdateSkipVersion = ""; changed(); ShowPage(nav.SelectedIndex); }));
+            Row(t, "Skipped version", skip);
+        }
+        var notes = new LinkLabel { Text = "Release notes on GitHub", AutoSize = true, LinkColor = Color.FromArgb(180, 140, 255) };
+        notes.Click += (_, _) => Updater.OpenUrl(Updates.ReleasesPage);
+        Row(t, "", notes);
+        t.Controls.Add(new Label());
+        t.Controls.Add(Note("Updates come from the GitHub releases and are installed by install.ps1, the same script as a " +
+            "first install: it downloads the release, closes the gadget, replaces it and starts it again. Asking shows " +
+            "Install now / Later (asks again in a day) / Skip this version. Installing automatically runs the script with " +
+            "no window and writes its output to update.log next to the config. Checks run at most once an hour " +
+            "(GitHub allows 60 an hour per address, shared by every machine behind one router); \"Check now\" and the " +
+            "right-click menu always check." +
+            (Updater.InstalledCopy ? "" : "\n\nThis copy runs from outside the folder install.ps1 installs to (a source " +
+                "build, say), so it can't replace itself - it only points you at the release page.")));
+        stack.Controls.Add(t);
+        stack.Controls.Add(Heading("Updates"));
+        return stack;
+    }
+
     // ------------------------------------------------------------ About page
     Control AboutPage()
     {
         var stack = new Panel { Dock = DockStyle.Top, AutoSize = true };
         var t = Table();
-        var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
-        var ver = new FlowLayoutPanel { AutoSize = true, Margin = new Padding(0), WrapContents = false };
-        ver.Controls.Add(new Label { Text = version != null ? $"{version.Major}.{version.Minor}.{version.Build}" : "dev", AutoSize = true, Margin = new Padding(0, 6, 12, 0) });
-        ver.Controls.Add(Btn("Check for updates", () => MainWindow.CheckForUpdates(this)));
-        Row(t, "Version", ver);
+        Row(t, "Version", new Label { Text = Updater.CurrentText, AutoSize = true });
         Row(t, "Author", new Label { Text = "Bart Strauss", AutoSize = true });
         var link = new LinkLabel { Text = "github.com/SuperBartimus/GlassySystemGadget", AutoSize = true, LinkColor = Color.FromArgb(180, 140, 255) };
         link.Click += (_, _) => { try { Process.Start(new ProcessStartInfo("https://github.com/SuperBartimus/GlassySystemGadget") { UseShellExecute = true }); } catch (System.ComponentModel.Win32Exception) { } };

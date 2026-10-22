@@ -96,19 +96,28 @@ function New-HiddenStartupShortcut {
 # ---- main ----
 if (-not (Test-DotNet8DesktopRuntime)) { Install-DotNet8DesktopRuntime }
 
-Stop-RunningGadget
-
+# Download before stopping the running copy: if GitHub can't be reached, the gadget keeps running untouched. This
+# matters for the gadget's own unattended updates, where nobody is watching to restart it.
 Write-Host 'Downloading latest release...'
 $zipUrl = Get-LatestReleaseZipUrl
 $zipPath = Join-Path $env:TEMP 'GlassySystemGadget-latest.zip'
 Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing
 
-New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-Expand-Archive -Path $zipPath -DestinationPath $InstallDir -Force
-Remove-Item $zipPath -Force
+Stop-RunningGadget
 
-$shortcut = New-HiddenStartupShortcut -InstallDir $InstallDir
-Write-Host "Installed to $InstallDir"
-Write-Host "Starts automatically at login (shortcut: $shortcut)."
-Write-Host 'Starting it now...'
-& wscript.exe (Join-Path $InstallDir 'Glassy.vbs')
+try {
+    New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+    Expand-Archive -Path $zipPath -DestinationPath $InstallDir -Force
+    Remove-Item $zipPath -Force
+    $shortcut = New-HiddenStartupShortcut -InstallDir $InstallDir
+    Write-Host "Installed to $InstallDir"
+    Write-Host "Starts automatically at login (shortcut: $shortcut)."
+}
+finally {
+    # Start whatever is in place even if the extract failed, rather than leave the gadget stopped.
+    $vbs = Join-Path $InstallDir 'Glassy.vbs'
+    if (Test-Path $vbs) {
+        Write-Host 'Starting it now...'
+        & wscript.exe $vbs
+    }
+}

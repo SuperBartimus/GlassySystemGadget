@@ -131,7 +131,9 @@ Installs to `%LocalAppData%\GlassySystemGadget`. Nothing is added to PATH,
 nothing needs admin rights (the .NET runtime install may prompt once via
 `winget`). The launcher calls `dotnet.exe` by its full path, so it works
 even when .NET was installed after you logged in. See `install.ps1` for what
-it does before running it.
+it does before running it. It downloads the release before stopping a running
+copy, so a failed download leaves the widget running, and it starts the
+widget again even if unpacking fails.
 
 ## Build from source
 
@@ -162,9 +164,10 @@ in the top-right corner (the widget deliberately never takes focus, so this
 is the discoverable way in without right-clicking). Launching the app a
 second time also opens Settings in the running widget. Right-click the widget
 for Settings, Check for updates, Lock position, Reset position, Restart
-and Exit. Check for updates (also a button on the About page) asks GitHub
+and Exit. Check for updates (also "Check now" on the Updates page) asks GitHub
 for the latest release; on a copy installed by `install.ps1` it offers to
-run the installer again, which closes, updates and restarts the widget.
+run the installer again, which closes, updates and restarts the widget. The
+Updates page can also check on a schedule and ask, or install on its own.
 
 ## Settings
 
@@ -196,7 +199,12 @@ run the installer again, which closes, updates and restarts the widget.
   recoloured or switched off individually like any other graph line; File
   shares adds graph height and a share row cap; AI usage adds show/hide and
   a colour per provider, heatmap on/off, days and square height.
-- About: version (with a Check for updates button), author and a link back
+- Updates: current version, Check now, and what to do when a new version is
+  out - ask (Install now / Later / Skip this version), install automatically
+  (optionally only between 1 and 5 AM), or don't check - plus how often to
+  check (at least an hour apart; default 6 hours) and a link to the release
+  notes.
+- About: version, author and a link back
   to this repo.
 - Changing a graph's durations or split restarts that graph's history.
 
@@ -234,7 +242,7 @@ If you already have a status line, add the same write to it instead.
 dotnet test GlassySystemGadget\tests\Glassy.Tests -c Release
 ```
 
-169 tests: ring/bucket maths, config round trip (incl. the theme colours and
+173 tests: ring/bucket maths, config round trip (incl. the theme colours and
 per-panel background override), theme preset validity, corrupt-file recovery and
 migration (of the old disk panels, and to add the Clipboard, Battery,
 Weather, IIS, Hyper-V, File shares and AI usage panels to a config that predates them; a config from a newer
@@ -244,7 +252,8 @@ keeps the others' history, a custom colour survives a restart, duplicate VM
 names, names the counters spell differently), merging the WMI VM list with the counters (and falling back without
 WMI), matching share counters to registry shares (scoped instances, renamed
 characters, inactive shares left out), share paths from the registry, the
-update check's version comparison, where the AI Stats flyout opens, reading AI limits from Codex logs (only the
+update check's version comparison, scheduling and install decisions (at most
+hourly, skip, overnight window, installed copy only), where the AI Stats flyout opens, reading AI limits from Codex logs (only the
 tail of a large log, the newest snapshot wins) and the Claude status-line
 cache, a limit window past its reset time reading 0%, counting AI tokens from
 the logs (repeated records once, cache reads left out, a half-written line
@@ -268,6 +277,7 @@ changing live. Headless checks of the app itself:
 dotnet ...\Glassy.App.dll --config $env:TEMP\t.json --shot out.png --demo   # render one frame to PNG
 dotnet ...\Glassy.App.dll --config $env:TEMP\t.json --soak 90               # memory soak, no window
 dotnet ...\Glassy.App.dll --config $env:TEMP\t.json --selftest              # builds every Settings page against live data
+dotnet ...\Glassy.App.dll --config $env:TEMP\t.json --selftest --page Updates --shot page.png   # one Settings page to PNG
 ```
 
 Always pass `--config` with a throwaway path when testing so your real config is
@@ -358,6 +368,10 @@ not touched.
   an empty disk bar.
 - Check for updates: confirmed working end to end on a real server
   (0.9.0 to 0.10.0).
+- Scheduled update checks and the Install now / Later / Skip prompt are
+  covered by tests of the decision rules; the unattended install (no
+  window, output to `update.log`) and the overnight window have not been
+  run end to end on a real machine yet.
 - AI usage: the percentages are whatever the tool last reported on this
   machine, so work done on another machine shows up here only once a tool
   runs here again (the age under each name says how old the numbers are).

@@ -19,7 +19,7 @@ static class Program
         ForceWarp = args.Contains("--warp");
         string cfgPath = Arg(args, "--config") ?? ConfigStore.DefaultPath;
         string shot = Arg(args, "--shot");
-        if (args.Contains("--selftest")) return SelfTest(cfgPath);
+        if (args.Contains("--selftest")) return SelfTest(cfgPath, Arg(args, "--page"), shot);
         if (Arg(args, "--soak") is string soak) return Soak(cfgPath, int.Parse(soak));
         if (shot != null) return Shot(cfgPath, shot, args.Contains("--demo"), float.TryParse(Arg(args, "--scale"), out var sc) ? sc : 1f);
 
@@ -39,7 +39,7 @@ static class Program
     }
 
     /// <summary>Headless check: builds every Settings page against live data (no window is shown) and reports any exception.</summary>
-    static int SelfTest(string cfgPath)
+    static int SelfTest(string cfgPath, string page = null, string png = null)
     {
         var cfg = ConfigStore.Load(cfgPath);
         using var engine = new Engine(cfg, configPath: cfgPath);
@@ -47,6 +47,7 @@ static class Program
         using var form = new SettingsForm(cfg, engine, () => { });
         int pages = form.BuildAllPages();
         Console.WriteLine($"settings pages built: {pages}; sections: {engine.Panels.Count}; drives: {engine.CurrentVolumes.Count}; adapters: {engine.CurrentAdapters.Count}");
+        if (page != null && png != null) { form.SavePage(page, png); Console.WriteLine($"page {page} -> {png}"); }   // --selftest --page Updates --shot x.png
         return 0;
     }
 

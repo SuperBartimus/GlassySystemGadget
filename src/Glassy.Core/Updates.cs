@@ -27,6 +27,23 @@ public static class Updates
     public static bool IsNewer(Version latest, Version current) =>
         latest != null && (current == null || latest > new Version(current.Major, current.Minor, Math.Max(0, current.Build)));
 
+    /// <summary>Whether a scheduled check is due. Never more than once an hour, whatever the setting says.</summary>
+    public static bool Due(DateTime? lastCheckUtc, int hours, DateTime nowUtc) =>
+        lastCheckUtc is not { } last || nowUtc - last >= TimeSpan.FromHours(Math.Max(1, hours)) || last > nowUtc;   // a clock set back doesn't stall checks
+
+    public enum Action { None, Notify, Install, Wait }
+
+    /// <summary>What a scheduled check does with the latest release. Skipping a version only silences the prompt; Auto
+    /// installs only on a copy install.ps1 put in place (any other copy can only be pointed at the release page, so it
+    /// gets the prompt instead), and with OvernightOnly it waits for 1-5 AM local.</summary>
+    public static Action Decide(GlobalConfig g, Version latest, Version current, bool installedCopy, DateTime nowLocal)
+    {
+        if (g.UpdateMode == UpdateMode.Off || !IsNewer(latest, current)) return Action.None;
+        if (g.UpdateMode == UpdateMode.Auto && installedCopy)
+            return g.UpdateOvernightOnly && (nowLocal.Hour < 1 || nowLocal.Hour >= 5) ? Action.Wait : Action.Install;
+        return ParseTag(g.UpdateSkipVersion) == latest ? Action.None : Action.Notify;
+    }
+
     public static async Task<string> LatestTagAsync()
     {
         using var doc = JsonDocument.Parse(await Http.GetStringAsync(LatestApi));

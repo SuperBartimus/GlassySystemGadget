@@ -10,6 +10,9 @@ public enum DockEdge { None, Left, Right }
 public enum ProcPriority { Idle, BelowNormal }
 public enum HistoryMode { Average, Peak }
 public enum ScaleMode { Auto, Fixed }
+/// <summary>Off = only when asked (menu or Settings); Notify = check on a schedule and ask before installing;
+/// Auto = check on a schedule and install without asking.</summary>
+public enum UpdateMode { Off, Notify, Auto }
 /// <summary>DiskIo and DiskSpace are legacy: they exist only so old config files still load, and are merged into Drives on load.</summary>
 public enum PanelKind { Cpu, Ram, Gpu, Network, DiskIo, DiskSpace, TopProcesses, Uptime, Drives, Clipboard, Battery, Weather, Iis, HyperV, FileShare, AiUsage }
 
@@ -161,6 +164,15 @@ public sealed class GlobalConfig
     /// exceeds it; only actually written to disk on the normal save cadence, so a crash mid-record-run can lose
     /// at most that one session's progress, not the record itself.</summary>
     public double UptimeRecordSeconds { get; set; }
+    // Updates (Settings > Updates). CheckHours is clamped to at least 1: GitHub allows 60 unauthenticated API calls
+    // an hour per address, and every widget behind one NAT shares that.
+    public UpdateMode UpdateMode { get; set; } = UpdateMode.Notify;
+    public int UpdateCheckHours { get; set; } = 6;
+    /// <summary>Auto mode installs only between 1 and 5 AM local time, so a widget never vanishes mid-use.</summary>
+    public bool UpdateOvernightOnly { get; set; }
+    /// <summary>A release tag the user chose to skip when asked; a newer one is offered again.</summary>
+    public string UpdateSkipVersion { get; set; } = "";
+    public DateTime? UpdateLastCheckUtc { get; set; }
 }
 
 public sealed class AppConfig
