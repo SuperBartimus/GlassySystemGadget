@@ -11,7 +11,7 @@ public enum ProcPriority { Idle, BelowNormal }
 public enum HistoryMode { Average, Peak }
 public enum ScaleMode { Auto, Fixed }
 /// <summary>DiskIo and DiskSpace are legacy: they exist only so old config files still load, and are merged into Drives on load.</summary>
-public enum PanelKind { Cpu, Ram, Gpu, Network, DiskIo, DiskSpace, TopProcesses, Uptime, Drives, Clipboard, Battery, Weather, Iis, HyperV, FileShare }
+public enum PanelKind { Cpu, Ram, Gpu, Network, DiskIo, DiskSpace, TopProcesses, Uptime, Drives, Clipboard, Battery, Weather, Iis, HyperV, FileShare, AiUsage }
 
 /// <summary>The app's cosmetic chrome - background, border, text tint. Deliberately separate from per-line graph
 /// colours (LineConfig.Color), which stay exactly as configurable as before; this is only the "shell" around them.</summary>
@@ -125,6 +125,14 @@ public sealed class PanelConfig
     public int HvMaxRows { get; set; } = 10;
     // File shares (Height is the throughput graph height; one row per share below it)
     public int FsMaxRows { get; set; } = 8;
+    // AI usage: provider ids ("codex", "claude") to leave out, and per-provider bar colours overriding AiUsageFormat.DefaultColor
+    public List<string> AiHidden { get; set; } = new();
+    public Dictionary<string, string> AiColors { get; set; } = new();
+    /// <summary>Heatmap under the bars: one square per day, oldest top-left, today bottom-right; each square in the colour
+    /// of that day's busiest provider. CellH is the square height in px (widths fill the panel).</summary>
+    public bool AiHeatmap { get; set; } = true;
+    public int AiHeatDays { get; set; } = 70;
+    public int AiHeatCellH { get; set; } = 8;
     // Theme: "" means inherit GlobalConfig.Theme's background for this one panel.
     public string SectionBgTop { get; set; } = "";
     public string SectionBgBottom { get; set; } = "";
@@ -187,6 +195,9 @@ public sealed class AppConfig
     /// <summary>Same role-detected pattern again: enabled, shown only where the machine shares folders (LanmanServer\Shares).</summary>
     public static PanelConfig FileSharePanel() => new() { Kind = PanelKind.FileShare, Enabled = true, Height = 60, Scale = ScaleMode.Auto, History = HistoryMode.Peak };
 
+    /// <summary>Shown only where Codex or Claude Code is installed (its config folder exists).</summary>
+    public static PanelConfig AiUsagePanel() => new() { Kind = PanelKind.AiUsage, Enabled = true };
+
     public static AppConfig CreateDefault()
     {
         PanelConfig P(PanelKind k, int h, ScaleMode s, double max = 100, HistoryMode hm = HistoryMode.Average) =>
@@ -208,6 +219,7 @@ public sealed class AppConfig
                 IisPanel(),
                 HyperVPanel(),
                 FileSharePanel(),
+                AiUsagePanel(),
             }
         };
     }
@@ -283,6 +295,7 @@ public static class ConfigStore
         if (!cfg.Panels.Any(p => p.Kind == PanelKind.Iis)) cfg.Panels.Add(AppConfig.IisPanel());
         if (!cfg.Panels.Any(p => p.Kind == PanelKind.HyperV)) cfg.Panels.Add(AppConfig.HyperVPanel());
         if (!cfg.Panels.Any(p => p.Kind == PanelKind.FileShare)) cfg.Panels.Add(AppConfig.FileSharePanel());
+        if (!cfg.Panels.Any(p => p.Kind == PanelKind.AiUsage)) cfg.Panels.Add(AppConfig.AiUsagePanel());
     }
 
     /// <summary>Atomic save (temp file + replace); UTF-8 without BOM.</summary>

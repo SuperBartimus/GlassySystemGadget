@@ -10,13 +10,13 @@ public sealed class SettingsForm : Form
     static readonly Color Bg = Color.FromArgb(28, 20, 40), Bg2 = Color.FromArgb(42, 31, 60), Fg = Color.FromArgb(235, 225, 250), Dim = Color.FromArgb(170, 155, 195);
     readonly AppConfig cfg; readonly Engine engine; readonly Action changed;
     readonly ListBox nav = new(); readonly Panel host = new();
-    static readonly PanelKind[] Kinds = { PanelKind.Cpu, PanelKind.Ram, PanelKind.Gpu, PanelKind.Network, PanelKind.Drives, PanelKind.TopProcesses, PanelKind.Uptime, PanelKind.Clipboard, PanelKind.Battery, PanelKind.Weather, PanelKind.Iis, PanelKind.HyperV, PanelKind.FileShare };
+    static readonly PanelKind[] Kinds = { PanelKind.Cpu, PanelKind.Ram, PanelKind.Gpu, PanelKind.Network, PanelKind.Drives, PanelKind.TopProcesses, PanelKind.Uptime, PanelKind.Clipboard, PanelKind.Battery, PanelKind.Weather, PanelKind.Iis, PanelKind.HyperV, PanelKind.FileShare, PanelKind.AiUsage };
 
     static string PageName(PanelKind k) => k switch
     {
         PanelKind.Cpu => "CPU", PanelKind.Ram => "Memory", PanelKind.Gpu => "GPU", PanelKind.Network => "Network",
         PanelKind.Drives => "Drives", PanelKind.TopProcesses => "Top processes", PanelKind.Clipboard => "Clipboard", PanelKind.Battery => "Battery",
-        PanelKind.Weather => "Weather", PanelKind.Iis => "IIS", PanelKind.HyperV => "Hyper-V", PanelKind.FileShare => "File shares", _ => "Uptime",
+        PanelKind.Weather => "Weather", PanelKind.Iis => "IIS", PanelKind.HyperV => "Hyper-V", PanelKind.FileShare => "File shares", PanelKind.AiUsage => "AI usage", _ => "Uptime",
     };
 
     public SettingsForm(AppConfig cfg, Engine engine, Action changed)
@@ -359,6 +359,32 @@ public sealed class SettingsForm : Form
             Row(t, "Battery icon side", Combo(p.BatteryIconLeft ? Side.Left : Side.Right, v => p.BatteryIconLeft = v == Side.Left));
             t.Controls.Add(new Label());
             t.Controls.Add(Note("Green graph line and glyph while charging; yellow to orange to red while discharging, by charge level."));
+        }
+        else if (kind == PanelKind.AiUsage)
+        {
+            foreach (var (id, name) in new[] { ("codex", "Codex"), ("claude", "Claude") })
+            {
+                Row(t, "", Chk($"Show {name}", !p.AiHidden.Contains(id, StringComparer.OrdinalIgnoreCase), v =>
+                {
+                    p.AiHidden.RemoveAll(x => string.Equals(x, id, StringComparison.OrdinalIgnoreCase));
+                    if (!v) p.AiHidden.Add(id);
+                }));
+                Row(t, $"{name} colour", ColorSwatch(AiUsageFormat.Color(p, id), v => p.AiColors[id] = v));
+            }
+            Row(t, "", Chk("Show usage heatmap", p.AiHeatmap, v => p.AiHeatmap = v));
+            Row(t, "Heatmap days", Num(7, 365, p.AiHeatDays, 0, 7, v => p.AiHeatDays = (int)v));
+            Row(t, "Square height (px)", Num(3, 30, p.AiHeatCellH, 0, 1, v => p.AiHeatCellH = (int)v));
+            t.Controls.Add(new Label());
+            t.Controls.Add(Note("Appears only where Codex or Claude Code is installed, and reads what they already write on " +
+                "this machine - no API keys, no network. Percentages are your account's limits as the tool last reported them, " +
+                "so the age under each name says how fresh they are; a window whose reset time has passed shows 0%.\n\n" +
+                "Codex: read from its session logs (CODEX_HOME, default %USERPROFILE%\\.codex).\n\n" +
+                "Claude Code only gives its limits to a status-line command, so one has to save them: write the status line's " +
+                "rate_limits to rate-limits-cache.json in %USERPROFILE%\\.claude as {\"written_utc\": ..., \"five_hour\": " +
+                "{\"used_percentage\": .., \"resets_at\": ..}, \"seven_day\": {..}}. See the README for an example.\n\n" +
+                "Heatmap and Stats count tokens (fresh input plus output) from the same logs, kept in ai-history.json next to " +
+                "the config so history survives the tools cleaning up old logs. Each heatmap square is one day, coloured by " +
+                "that day's busiest tool; the colours above apply. Stats opens from the button in the panel's corner."));
         }
 
         // Dock.Top stacks in reverse add order: the last control added ends up at the top.

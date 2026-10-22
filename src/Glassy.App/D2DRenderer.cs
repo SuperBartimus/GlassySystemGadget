@@ -320,6 +320,7 @@ public sealed class D2DRenderer : IDisposable
         if (p.Cfg.Kind == PanelKind.Clipboard) { ClipboardContent(p, W, e, l, r, t, txt, dim); return; }
         if (p.Cfg.Kind == PanelKind.Battery) { BatteryContent(p, W, l, r, t, txt, dim); return; }
         if (p.Cfg.Kind == PanelKind.Weather) { WeatherContent(p, l, r, t, txt, dim); return; }
+        if (p.Cfg.Kind == PanelKind.AiUsage) { AiContent(p, l, r, t, txt, dim); return; }
         switch (p.Cfg.Kind)
         {
             case PanelKind.Uptime:
@@ -547,6 +548,63 @@ public sealed class D2DRenderer : IDisposable
     // ------------------------------------------------------------ Weather panel
     static readonly (byte r, byte g, byte b) WeatherSun = (255, 196, 64), WeatherCloud = (190, 200, 220), WeatherRainCol = (100, 170, 255), WeatherSnowCol = (225, 235, 250);
     static readonly (byte r, byte g, byte b) WeatherAlertCol = (255, 90, 90);
+
+    /// <summary>One row per rate-limit window: provider name (its colour) on the first row and the data's age under it,
+    /// window label, a bar in the provider's colour, percent (amber from 80, red from 95), reset time. Rows come from
+    /// AiUsageFormat.Rows, the same list Engine sized the panel by. Data more than 12 h old is drawn faded.</summary>
+    void AiContent(PanelRuntime p, float l, float r, float t, ID2D1Brush txt, ID2D1Brush dim)
+    {
+        Text("AI usage", fTitle, l, t + 4, r, t + 22, txt);
+        var (bx, by, bw, bh) = AiUsageFormat.StatsButton(t, r + Engine.Margin + 10);
+        var btn = new RoundedRectangle(new RawRectF(bx, by, bx + bw, by + bh), 4, 4);
+        dc.FillRoundedRectangle(btn, Br(TitleCol, 0.10f)); dc.DrawRoundedRectangle(btn, Br(TitleCol, 0.35f), 0.8f);
+        Text("Stats", fWeatherCenter, bx, by + 1, bx + bw, by + bh, txt);
+        var now = DateTimeOffset.Now;
+        float y = t + Engine.Header;
+        foreach (var row in AiUsageFormat.Rows(p.Cfg, p.Ai))
+        {
+            if (row.Kind == AiRowKind.Separator)
+            {
+                dc.FillRectangle(new RawRectF(l, y + 2, r, y + 2.8f), Br(255, 255, 255, 0.08f));
+                y += AiUsageFormat.SeparatorH; continue;
+            }
+            var pv = row.Provider; var col = Hex(AiUsageFormat.Color(p.Cfg, pv.Id));
+            bool stale = pv.ObservedAt is { } at && now - at > TimeSpan.FromHours(12);
+            if (row.First) Text(pv.Name, fBody, l, y, l + 48, y + 15, Br(col, 0.95f));
+            else if (row.Window == pv.Windows.ElementAtOrDefault(1)) Text(AiUsageFormat.Age(pv.ObservedAt, now), fSmall, l, y + 2, l + 48, y + 15, dim);
+            if (row.Kind == AiRowKind.Note) { Text(pv.Note, fSmall, l + 50, y + 2, r, y + 15, dim); y += Engine.RowProc; continue; }
+
+            var w = row.Window; double pct = AiUsageFormat.Effective(w, now);
+            Text(w.Label, fSmall, l + 50, y + 2, l + 76, y + 15, dim);
+            float bl = l + 78, br = r - 118, bt = y + 5;
+            dc.FillRoundedRectangle(new RoundedRectangle(new RawRectF(bl, bt, br, bt + 6), 3, 3), Br(255, 255, 255, 0.10f));
+            float fw = (float)Math.Clamp(pct / 100, 0, 1) * (br - bl);
+            if (fw > 1) dc.FillRoundedRectangle(new RoundedRectangle(new RawRectF(bl, bt, bl + fw, bt + 6), 3, 3), Br(col, stale ? 0.4f : 0.9f));
+            var pctBrush = pct >= 95 ? Br(Fmt.LoadColor(1.0), 0.95f) : pct >= 80 ? Br(Fmt.LoadColor(0.75), 0.95f) : stale ? dim : txt;
+            Text(Fmt.Pct(pct), fBodyR, r - 116, y, r - 82, y + 15, pctBrush);
+            Text(AiUsageFormat.Reset(w, now), fSmallR, r - 80, y + 2, r, y + 15, dim);
+            y += Engine.RowProc;
+        }
+        if (p.Cfg.AiHeatmap) AiHeatmap(p, l, r, y + AiUsageFormat.HeatTop);
+    }
+
+    /// <summary>Contribution-graph style: a column per week, Sunday on top, today bottom-right. A square takes its
+    /// day's busiest provider's colour, in four strengths by share of that provider's busiest day; idle days are faint.</summary>
+    void AiHeatmap(PanelRuntime p, float l, float r, float y)
+    {
+        var (pos, cols) = AiUsageFormat.HeatGrid(p.AiHeat);
+        if (cols == 0) return;
+        float g = AiUsageFormat.HeatGap, h = Math.Clamp(p.Cfg.AiHeatCellH, 3, 30), w = (r - l - (cols - 1) * g) / cols;
+        float rad = Math.Min(2, Math.Min(w, h) / 3);
+        for (int i = 0; i < p.AiHeat.Count; i++)
+        {
+            var c = p.AiHeat[i]; var (col, row) = pos[i];
+            float x = l + col * (w + g), yy = y + row * (h + g);
+            int step = AiStats.Step(c.Level);
+            var brush = step == 0 ? Br(255, 255, 255, 0.07f) : Br(Hex(AiUsageFormat.Color(p.Cfg, c.Provider)), step switch { 1 => 0.28f, 2 => 0.5f, 3 => 0.72f, _ => 0.95f });
+            dc.FillRoundedRectangle(new RoundedRectangle(new RawRectF(x, yy, x + w, yy + h), rad, rad), brush);
+        }
+    }
 
     void WeatherContent(PanelRuntime p, float l, float r, float t, ID2D1Brush txt, ID2D1Brush dim)
     {

@@ -102,6 +102,22 @@ static class Program
 
     /// <summary>Only used by --demo --shot: a fixed fake forecast (no network call) so the Weather panel - disabled
     /// by default, since it's the app's only feature needing an outbound call - has something to show headlessly.</summary>
+    /// <summary>70 days of made-up hourly token counts (fixed seed): Claude most weekdays in office hours, Codex in
+    /// evening bursts, a few idle days - enough for the heatmap and Stats to show every colour and step.</summary>
+    static Dictionary<string, Dictionary<DateTime, long>> DemoAiHours()
+    {
+        var rng = new Random(7); var codex = new Dictionary<DateTime, long>(); var claude = new Dictionary<DateTime, long>();
+        for (int d = 0; d < 70; d++)
+        {
+            var day = DateTime.Today.AddDays(-d);
+            if (rng.NextDouble() < 0.18) continue;
+            bool weekend = day.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;
+            for (int h = 9; h < 17; h++) if (!weekend && rng.NextDouble() < 0.6) claude[day.AddHours(h)] = rng.Next(20_000, 400_000);
+            for (int h = 19; h < 23; h++) if (rng.NextDouble() < 0.35) codex[day.AddHours(h)] = rng.Next(50_000, 900_000);
+        }
+        return new() { ["codex"] = codex, ["claude"] = claude };
+    }
+
     static IWeatherProvider DemoWeather()
     {
         var snap = new WeatherSnapshot
@@ -154,7 +170,19 @@ static class Program
                 new SmbShare("Scans", @"E:\Scans", 2, 0.1e6, 0.1e6, 120 * GB, 950 * GB), new SmbShare("Users$", @"F:\Users", 0, 0, 0, 1800 * GB, 1900 * GB),
             },
         } } : null;
-        using var engine = new Engine(cfg, configPath: cfgPath, battery: demoBattery, weather: demoWeather, iis: demoIis, hyperV: demoHyperV, shares: demoShares); using var r = new D2DRenderer(ForceWarp);
+        var nowDemo = DateTimeOffset.Now;
+        var demoAi = demo ? new FakeAiUsageProvider { Value = new AiUsageStatus
+        {
+            Providers =
+            {
+                new AiProviderStatus { Id = "codex", Name = "Codex", Plan = "plus", ObservedAt = nowDemo.AddMinutes(-3), Windows =
+                    { new AiWindow("5h", 33, nowDemo.AddHours(3.4)), new AiWindow("7d", 17, nowDemo.AddDays(3.6)) } },
+                new AiProviderStatus { Id = "claude", Name = "Claude", ObservedAt = nowDemo.AddSeconds(-20), Windows =
+                    { new AiWindow("5h", 57, nowDemo.AddHours(4.6)), new AiWindow("7d", 84, nowDemo.AddDays(1.9)) } },
+            },
+            Hours = DemoAiHours(),
+        } } : null;
+        using var engine = new Engine(cfg, configPath: cfgPath, battery: demoBattery, weather: demoWeather, iis: demoIis, hyperV: demoHyperV, shares: demoShares, ai: demoAi); using var r = new D2DRenderer(ForceWarp);
         for (int i = 0; i < 6; i++) { engine.Tick(); Thread.Sleep(cfg.Global.TickMs); }
         if (demo) { engine.DemoFill(); DemoFillClipboard(engine); r.ShowSettingsGear = true; }   // showcase the hover-only Settings gear in demo shots
         r.Resize(cfg.Global.Width, engine.TotalHeight, scale); r.Render(engine, cfg.Global);
@@ -174,6 +202,16 @@ static class Program
         }
         finally { Marshal.FreeHGlobal(buf); }
         Console.Error.WriteLine($"shot {r.PxW}x{r.PxH}px -> {png}");
+        // The AI Stats flyout too, beside it (never shown on screen): its owner-drawn page is checked the same way.
+        if (engine.Panels.FirstOrDefault(x => x.Cfg.Kind == PanelKind.AiUsage) is { } ai)
+        {
+            using var form = new AiStatsForm(() => ai);
+            using var bmp = new Bitmap(form.Width, form.Height);
+            form.DrawToBitmap(bmp, new Rectangle(0, 0, bmp.Width, bmp.Height));
+            string statsPng = Path.ChangeExtension(png, null) + "-stats.png";
+            bmp.Save(statsPng, ImageFormat.Png);
+            Console.Error.WriteLine($"stats -> {statsPng}");
+        }
         return 0;
     }
 }

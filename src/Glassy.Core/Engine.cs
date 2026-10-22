@@ -26,6 +26,9 @@ public sealed class PanelRuntime
     public WeatherSnapshot Weather;
     public string WeatherError = "";
     public bool WeatherRefreshing;
+    /// <summary>AI usage panel only: the latest provider limits.</summary>
+    public AiUsageStatus Ai = new();
+    public List<AiHeatCell> AiHeat = new();
     /// <summary>Line keys the Series buffers belong to, in order - lets a changed line set keep surviving history.</summary>
     internal string[] SeriesKeys = Array.Empty<string>();
     internal string TimingKey = "";
@@ -66,9 +69,11 @@ public sealed class Engine : IDisposable
     IIisProvider iis; readonly bool ownsIis;
     IHyperVProvider hyperV; readonly bool ownsHyperV;
     IFileShareProvider shares; readonly bool ownsShares;
+    IAiUsageProvider ai; readonly bool ownsAi;
     DriveActivityHub activity;
     ProcessSampler procs;
     readonly ClipboardStore clipboard;
+    readonly string dataDir;
     readonly double initialUptimeRecordSeconds;
     string layoutSig = "";
     long lastProc, lastSlow;
@@ -79,7 +84,7 @@ public sealed class Engine : IDisposable
     public static string ClipboardDirFor(string configPath) => Path.Combine(Path.GetDirectoryName(configPath)!, "Clipboard");
     public static string DefaultClipboardDir => ClipboardDirFor(ConfigStore.DefaultPath);
 
-    public Engine(AppConfig cfg, IVolumeProvider volumes = null, INetProvider net = null, ClipboardStore clipboard = null, string configPath = null, IBatteryProvider battery = null, IWeatherProvider weather = null, IIisProvider iis = null, IHyperVProvider hyperV = null, IFileShareProvider shares = null)
+    public Engine(AppConfig cfg, IVolumeProvider volumes = null, INetProvider net = null, ClipboardStore clipboard = null, string configPath = null, IBatteryProvider battery = null, IWeatherProvider weather = null, IIisProvider iis = null, IHyperVProvider hyperV = null, IFileShareProvider shares = null, IAiUsageProvider ai = null)
     {
         this.volumes = volumes; ownsVolumes = volumes == null;
         this.net = net; ownsNet = net == null;
@@ -88,6 +93,8 @@ public sealed class Engine : IDisposable
         this.iis = iis; ownsIis = iis == null;
         this.hyperV = hyperV; ownsHyperV = hyperV == null;
         this.shares = shares; ownsShares = shares == null;
+        this.ai = ai; ownsAi = ai == null;
+        dataDir = Path.GetDirectoryName(configPath ?? ConfigStore.DefaultPath)!;
         this.clipboard = clipboard ?? new ClipboardStore(ClipboardDirFor(configPath ?? ConfigStore.DefaultPath));
         initialUptimeRecordSeconds = cfg.Global.UptimeRecordSeconds;   // captured once, before this session's own ticks can raise it, so "new record" means genuinely new
         Apply(cfg);
@@ -100,6 +107,7 @@ public sealed class Engine : IDisposable
     IIisProvider Iis => iis ??= new PdhIisProvider();
     IHyperVProvider HyperV => hyperV ??= new PdhHyperVProvider();
     IFileShareProvider Shares => shares ??= new PdhFileShareProvider();
+    IAiUsageProvider Ai => ai ??= new LocalAiUsageProvider(Path.Combine(dataDir, "ai-history.json"));
     DriveActivityHub Activity => activity ??= new DriveActivityHub();
     /// <summary>Bypasses the poll interval on the next Tick - Settings' manual "Refresh now" button and a fresh
     /// device-location resolution both call this.</summary>
@@ -142,6 +150,7 @@ public sealed class Engine : IDisposable
         PanelKind.Iis => Iis.Installed,
         PanelKind.HyperV => HyperV.Installed,
         PanelKind.FileShare => Shares.Installed,
+        PanelKind.AiUsage => Ai.Installed,
         _ => true,
     };
 
@@ -154,6 +163,7 @@ public sealed class Engine : IDisposable
             if (pc.Kind == PanelKind.Drives) sb.Append("D:").AppendJoin(';', VisibleVolumes(pc).Select(v => v.Key + (Activity.Has(v.Letter) ? "+" : "-"))).Append('|');
             else if (pc.Kind == PanelKind.Network && pc.SeparateAdapters) sb.Append("N:").AppendJoin(';', SelectedAdapters(pc)).Append('|');
             else if (pc.Kind == PanelKind.Battery) sb.Append("B:").Append(BatteryPresent).Append('|');
+            else if (pc.Kind == PanelKind.AiUsage && runtimes.TryGetValue((PanelKind.AiUsage, ""), out var art)) sb.Append("A:").AppendJoin(',', AiUsageFormat.Rows(pc, art.Ai).Select(r => r.Kind)).Append('|');   // a provider gaining or losing a window resizes the panel
             else if (sources.GetValueOrDefault(pc.Kind) is PerItemSource ps) sb.Append(pc.Kind).Append(':').Append(ps.LayoutSignature(pc)).Append('|');   // a site or VM appearing adds a line and a row
         }
         return sb.ToString();
@@ -264,6 +274,7 @@ public sealed class Engine : IDisposable
         else if (kind == PanelKind.Clipboard) rt.Height = Math.Max(ClipMinHeight, pc.Height);
         else if (kind == PanelKind.Uptime) rt.Height = UptimeHeight;   // title + record/since line + a small bar
         else if (kind == PanelKind.Weather) rt.Height = WeatherBaseHeight + (pc.WeatherShowAlerts ? WeatherAlertRowH : 0);
+        else if (kind == PanelKind.AiUsage) rt.Height = Header + AiUsageFormat.RowsHeight(AiUsageFormat.Rows(pc, rt.Ai)) + AiUsageFormat.HeatmapHeight(pc) + 4;
         else rt.Height = 28;
     }
 
@@ -308,6 +319,11 @@ public sealed class Engine : IDisposable
                 var q = new WeatherQuery(pc.WeatherMode, pc.WeatherZip, pc.WeatherCountry, pc.WeatherCity, pc.WeatherState, pc.WeatherLat, pc.WeatherLon);
                 Weather.Poll(q, TimeSpan.FromMinutes(Math.Max(1, pc.WeatherPollMinutes)), weatherForceRefresh);
                 p.Weather = Weather.Snapshot; p.WeatherError = Weather.LastError ?? ""; p.WeatherRefreshing = Weather.Refreshing;
+            }
+            else if (p.Cfg.Kind == PanelKind.AiUsage)
+            {
+                var s = Ai.Sample();
+                if (!ReferenceEquals(s, p.Ai) || p.AiHeat.Count != Math.Max(7, p.Cfg.AiHeatDays)) { p.Ai = s; p.AiHeat = AiStats.Heatmap(s.Hours, DateTime.Today, Math.Max(7, p.Cfg.AiHeatDays)); }
             }
         }
         weatherForceRefresh = false;
@@ -370,5 +386,6 @@ public sealed class Engine : IDisposable
         if (ownsIis) iis?.Dispose();
         if (ownsHyperV) hyperV?.Dispose();
         if (ownsShares) shares?.Dispose();
+        if (ownsAi) ai?.Dispose();
     }
 }

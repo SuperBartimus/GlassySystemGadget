@@ -35,6 +35,7 @@ public sealed class MainWindow : Form
     bool locked, dragging, barRegistered, bottomLock, lastStartup;
     Point dragStart, posStart;
     SettingsForm settings;
+    AiStatsForm aiStats;
     ClipboardWatcher clipWatcher;
     readonly TextBox clipSearch = new()
     {
@@ -241,6 +242,7 @@ public sealed class MainWindow : Form
     {
         base.OnMouseDown(e);
         if (e.Button == MouseButtons.Left && hoveringWidget && GearHit(e.Location)) { OpenSettings(); return; }
+        if (e.Button == MouseButtons.Left && AiStatsHit(e.Location) is { } aiPanel) { OpenAiStats(aiPanel); return; }
         if (e.Button == MouseButtons.Left && HandleClipboardClick(e.Location)) return;
         if (e.Button != MouseButtons.Left || cfg.Global.LockPosition || cfg.Global.Dock != DockEdge.None) return;
         dragging = true; dragStart = Cursor.Position; posStart = pos; Capture = true;
@@ -252,6 +254,24 @@ public sealed class MainWindow : Form
     /// widget - discoverable without needing a permanent icon competing with the panels for attention.</summary>
     protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); hoveringWidget = true; RenderFrame(); }
     protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); hoveringWidget = false; RenderFrame(); }
+
+    /// <summary>The AI usage panel when the click is on its Stats button, else null.</summary>
+    PanelRuntime AiStatsHit(Point physical)
+    {
+        float s = DeviceDpi / 96f; float dipX = physical.X / s, dipY = physical.Y / s;
+        var p = engine.Panels.FirstOrDefault(x => x.Cfg.Kind == PanelKind.AiUsage); if (p == null) return null;
+        var (x, y, w, h) = AiUsageFormat.StatsButton(p.Top, cfg.Global.Width);
+        return dipX >= x && dipX < x + w && dipY >= y && dipY < y + h ? p : null;
+    }
+
+    /// <summary>A second click while it's open just brings it forward; it closes itself when it loses focus.</summary>
+    void OpenAiStats(PanelRuntime p)
+    {
+        if (aiStats != null && !aiStats.IsDisposed) { aiStats.Activate(); return; }
+        aiStats = new AiStatsForm(() => engine.Panels.FirstOrDefault(x => x.Cfg.Kind == PanelKind.AiUsage));
+        aiStats.PlaceBeside(Bounds, (int)(p.Top * DeviceDpi / 96f));
+        aiStats.Show(); aiStats.Activate();
+    }
 
     bool GearHit(Point physical)
     {

@@ -77,6 +77,18 @@ Panels (each its own graph group, reorderable, individually switchable):
   header shows connected sessions and open files server-wide. Shares come
   from the registry and activity from the "SMB Server Shares" / "Server"
   performance counters - no WMI.
+- AI usage: shown only where Codex or Claude Code is installed. One row per
+  rate-limit window - name, 5h / 7d, a bar in the provider's colour, percent
+  (amber from 80%, red from 95%) and when it resets - with how old the
+  numbers are under each name. Read from what the tools already write on
+  this machine: no API keys, no network. Refreshed every 15 seconds.
+  Below the bars, an optional heatmap: one square per day (70 by default),
+  coloured by that day's busiest tool and shaded by how busy it was. The
+  Stats button opens a flyout with a usage personality (Night Owl, Sprint
+  User, Nine-to-Fiver, Steady Drip... plus a secondary trait like Busy Bee
+  or Two-Timer), today and the daily average, the split between tools,
+  records and streaks, and an hour-of-day pattern. Token counts come from
+  the same logs and are kept in `ai-history.json` next to the config.
 
 Memory, GPU, Network and the drive graphs carry a tiny legend of the lines that
 are switched on (network and drives include the current values).
@@ -182,28 +194,63 @@ run the installer again, which closes, updates and restarts the widget.
   list's header, e.g. "Sites  8 of 12"); Hyper-V adds graph height, show
   off/saved/paused VMs, and a VM row cap. Per-site and per-VM lines can be
   recoloured or switched off individually like any other graph line; File
-  shares adds graph height and a share row cap.
+  shares adds graph height and a share row cap; AI usage adds show/hide and
+  a colour per provider, heatmap on/off, days and square height.
 - About: version (with a Check for updates button), author and a link back
   to this repo.
 - Changing a graph's durations or split restarts that graph's history.
 
+
+### Claude Code limits
+
+Codex writes its 5h and weekly limits into its session logs, so GSG finds
+them on its own. Claude Code only hands its limits to a status-line command,
+so that command has to save them to `%USERPROFILE%\.claude\rate-limits-cache.json`.
+If you don't have a status line yet, this one (Node, which Claude Code
+already needs) shows nothing and only writes the file. Save it as
+`%USERPROFILE%\.claude\gsg-limits.js`:
+
+```js
+let s = "";
+process.stdin.on("data", d => (s += d)).on("end", () => {
+  try {
+    const rl = JSON.parse(s).rate_limits;
+    if (rl) require("fs").writeFileSync(require("path").join(require("os").homedir(), ".claude", "rate-limits-cache.json"),
+      JSON.stringify({ written_utc: new Date().toISOString(), ...rl }));
+  } catch (e) {}
+});
+```
+
+and point Claude Code at it in `%USERPROFILE%\.claude\settings.json`:
+
+```json
+"statusLine": { "type": "command", "command": "node C:/Users/<you>/.claude/gsg-limits.js" }
+```
+
+If you already have a status line, add the same write to it instead.
 ## Build And Test
 
 ```powershell
 dotnet test GlassySystemGadget\tests\Glassy.Tests -c Release
 ```
 
-148 tests: ring/bucket maths, config round trip (incl. the theme colours and
+164 tests: ring/bucket maths, config round trip (incl. the theme colours and
 per-panel background override), theme preset validity, corrupt-file recovery and
 migration (of the old disk panels, and to add the Clipboard, Battery,
-Weather, IIS, Hyper-V and File shares panels to a config that predates them; a config from a newer
+Weather, IIS, Hyper-V, File shares and AI usage panels to a config that predates them; a config from a newer
 version loses only the panels this one doesn't know), IIS, Hyper-V and file share role
 detection, row layout, pool and VM states, per-site/per-VM lines (a new one
 keeps the others' history, a custom colour survives a restart, duplicate VM
 names, names the counters spell differently), merging the WMI VM list with the counters (and falling back without
 WMI), matching share counters to registry shares (scoped instances, renamed
 characters, inactive shares left out), share paths from the registry, the
-update check's version comparison, a real wildcard performance-counter read and a real WMI query, the raw NtQuerySystemInformation
+update check's version comparison, reading AI limits from Codex logs (only the
+tail of a large log, the newest snapshot wins) and the Claude status-line
+cache, a limit window past its reset time reading 0%, counting AI tokens from
+the logs (repeated records once, cache reads left out, a half-written line
+only once complete, a rewritten log recounted, history kept after a log is
+deleted), the heatmap's per-tool shading and week grid, AI records, streaks
+and personalities, a real wildcard performance-counter read and a real WMI query, the raw NtQuerySystemInformation
 offsets (checked against this process, including a buffer-growth regression this
 fixed), real CPU, RAM, drive, network and GPU sampling, autostart launcher
 quoting, the load and discharge colour ramps, clipboard classification and
@@ -312,6 +359,21 @@ not touched.
 - Check for updates: the version check runs against GitHub's real API;
   the install step (running `install.ps1` from the widget, which closes
   and restarts it) has not been run end to end.
+- AI usage: the percentages are whatever the tool last reported on this
+  machine, so work done on another machine shows up here only once a tool
+  runs here again (the age under each name says how old the numbers are).
+  Codex's log format is not a documented interface and may change; Claude's
+  numbers depend on a status line writing the cache file (see "Claude Code
+  limits" above). Checked against real Codex logs and a real Claude cache
+  on the dev machine.
+- AI heatmap and Stats count "tokens" as fresh input plus output (cache
+  reads are left out; Claude cache writes are counted). Codex and Claude
+  count on different scales, so each heatmap square is shaded against that
+  tool's own busiest day. Claude Code deletes transcripts older than 30
+  days by default, so Claude's history starts at whatever is still on disk
+  the first time GSG runs; from then on GSG keeps it. The personalities
+  are simple rules over the last 7 days, for fun. The flyout was checked
+  as a rendered image, not clicked open on a live widget.
 
 ## License
 

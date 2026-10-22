@@ -472,7 +472,7 @@ public class ColourAndMigrationTests
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, "{ \"Global\": {}, \"Panels\": [ { \"Kind\": \"Cpu\" }, { \"Kind\": \"DiskIo\", \"Enabled\": false }, { \"Kind\": \"DiskSpace\" }, { \"Kind\": \"Uptime\" } ] }");
         var cfg = ConfigStore.Load(path);
-        Assert.Equal(new[] { PanelKind.Cpu, PanelKind.Drives, PanelKind.Uptime, PanelKind.Clipboard, PanelKind.Battery, PanelKind.Weather, PanelKind.Iis, PanelKind.HyperV, PanelKind.FileShare }, cfg.Panels.Select(p => p.Kind));
+        Assert.Equal(new[] { PanelKind.Cpu, PanelKind.Drives, PanelKind.Uptime, PanelKind.Clipboard, PanelKind.Battery, PanelKind.Weather, PanelKind.Iis, PanelKind.HyperV, PanelKind.FileShare, PanelKind.AiUsage }, cfg.Panels.Select(p => p.Kind));
         Assert.True(cfg.Panels[1].Enabled);                                       // DiskSpace was enabled, so the merged panel is
         Assert.False(File.Exists(path + ".bad"));                                 // migrated, not discarded
     }
