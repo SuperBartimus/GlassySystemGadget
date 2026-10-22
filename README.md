@@ -234,7 +234,7 @@ If you already have a status line, add the same write to it instead.
 dotnet test GlassySystemGadget\tests\Glassy.Tests -c Release
 ```
 
-164 tests: ring/bucket maths, config round trip (incl. the theme colours and
+169 tests: ring/bucket maths, config round trip (incl. the theme colours and
 per-panel background override), theme preset validity, corrupt-file recovery and
 migration (of the old disk panels, and to add the Clipboard, Battery,
 Weather, IIS, Hyper-V, File shares and AI usage panels to a config that predates them; a config from a newer
@@ -244,7 +244,7 @@ keeps the others' history, a custom colour survives a restart, duplicate VM
 names, names the counters spell differently), merging the WMI VM list with the counters (and falling back without
 WMI), matching share counters to registry shares (scoped instances, renamed
 characters, inactive shares left out), share paths from the registry, the
-update check's version comparison, reading AI limits from Codex logs (only the
+update check's version comparison, where the AI Stats flyout opens, reading AI limits from Codex logs (only the
 tail of a large log, the newest snapshot wins) and the Claude status-line
 cache, a limit window past its reset time reading 0%, counting AI tokens from
 the logs (repeated records once, cache reads left out, a half-written line
@@ -356,9 +356,8 @@ not touched.
   a restart to show it; after that, new and removed shares appear within
   10 seconds. A share whose folder is on a volume it can't measure shows
   an empty disk bar.
-- Check for updates: the version check runs against GitHub's real API;
-  the install step (running `install.ps1` from the widget, which closes
-  and restarts it) has not been run end to end.
+- Check for updates: confirmed working end to end on a real server
+  (0.9.0 to 0.10.0).
 - AI usage: the percentages are whatever the tool last reported on this
   machine, so work done on another machine shows up here only once a tool
   runs here again (the age under each name says how old the numbers are).
@@ -372,8 +371,9 @@ not touched.
   tool's own busiest day. Claude Code deletes transcripts older than 30
   days by default, so Claude's history starts at whatever is still on disk
   the first time GSG runs; from then on GSG keeps it. The personalities
-  are simple rules over the last 7 days, for fun. The flyout was checked
-  as a rendered image, not clicked open on a live widget.
+  are simple rules over the last 7 days, for fun. In v0.10.0 the Stats
+  flyout opened far from the widget; v0.10.1 places it beside the widget,
+  toward the middle of its screen.
 
 ## License
 

@@ -269,7 +269,8 @@ public sealed class MainWindow : Form
     {
         if (aiStats != null && !aiStats.IsDisposed) { aiStats.Activate(); return; }
         aiStats = new AiStatsForm(() => engine.Panels.FirstOrDefault(x => x.Cfg.Kind == PanelKind.AiUsage));
-        aiStats.PlaceBeside(Bounds, (int)(p.Top * DeviceDpi / 96f));
+        // pos/pxW/pxH, not Bounds: the widget moves itself with UpdateLayeredWindow, so WinForms' Bounds goes stale.
+        aiStats.PlaceBeside(new Rectangle(pos.X, pos.Y, pxW, pxH), (int)(p.Top * DeviceDpi / 96f));
         aiStats.Show(); aiStats.Activate();
     }
 

@@ -74,6 +74,26 @@ public class AiUsageTests
         Assert.Equal(new[] { AiRowKind.Note }, AiUsageFormat.Rows(pc, s).Select(r => r.Kind));
     }
 
+    [Theory]
+    [InlineData(1500, 1840, 1194)]   // widget on the right half (e.g. docked right): flyout to its left
+    [InlineData(40, 380, 386)]       // widget on the left half: flyout to its right
+    [InlineData(1700, 1910, 1394)]   // right half, room only on the left
+    [InlineData(5, 345, 351)]        // left half at the very edge: still to the right
+    public void Stats_flyout_opens_beside_the_widget_toward_the_middle_of_the_screen(int wl, int wr, int expectedX) =>
+        Assert.Equal(expectedX, AiUsageFormat.FlyoutX(wl, wr, 300, 0, 1920, 6));
+
+    [Fact]
+    public void Stats_flyout_flips_sides_when_the_preferred_one_has_no_room()
+    {
+        // A wide widget on a small screen: centre right of middle, but no room on the left - goes right, kept on screen.
+        Assert.Equal(700, AiUsageFormat.FlyoutX(250, 800, 300, 0, 1000, 6));
+        // Centre left of middle, but no room on the right - goes left, kept on screen.
+        Assert.Equal(0, AiUsageFormat.FlyoutX(200, 760, 300, 0, 1000, 6));
+        // A second monitor to the right: the widget is right of the virtual desktop's middle but on the left half of its
+        // own screen, so the flyout goes right.
+        Assert.Equal(2686, AiUsageFormat.FlyoutX(2340, 2680, 300, 1920, 3840, 6));
+    }
+
     [Fact]
     public void Panel_shows_only_where_an_AI_tool_is_installed_and_grows_with_its_rows()
     {

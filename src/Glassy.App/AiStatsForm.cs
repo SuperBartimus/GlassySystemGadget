@@ -39,13 +39,14 @@ public sealed class AiStatsForm : Form
         base.Dispose(disposing);
     }
 
-    /// <summary>Beside the widget (left if there's room, else right), level with the AI usage panel.</summary>
+    /// <summary>Beside the widget, level with the AI usage panel: toward the middle of the screen (left of a widget on
+    /// the right half, right of one on the left half), or the other side if that one has no room.</summary>
     public void PlaceBeside(Rectangle widget, int panelTopPx)
     {
         var area = Screen.FromRectangle(widget).WorkingArea;
-        int x = widget.Left - Width - Px(6) >= area.Left ? widget.Left - Width - Px(6) : widget.Right + Px(6);
+        int x = AiUsageFormat.FlyoutX(widget.Left, widget.Right, Width, area.Left, area.Right, Px(6));
         int y = Math.Clamp(widget.Top + panelTopPx, area.Top, Math.Max(area.Top, area.Bottom - Height));
-        Location = new Point(Math.Clamp(x, area.Left, Math.Max(area.Left, area.Right - Width)), y);
+        Location = new Point(x, y);
     }
 
     protected override void OnPaint(PaintEventArgs e)

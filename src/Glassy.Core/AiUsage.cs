@@ -107,6 +107,16 @@ public static class AiUsageFormat
         return (r - 40, panelTop + 5, 40, 15);
     }
 
+    /// <summary>Screen x for the Stats flyout: beside the widget, toward the middle of the screen (left of a widget on
+    /// the right half, right of one on the left half), the other side if that has no room, and kept on screen.</summary>
+    public static int FlyoutX(int widgetLeft, int widgetRight, int flyoutW, int areaLeft, int areaRight, int gap)
+    {
+        int left = widgetLeft - flyoutW - gap, right = widgetRight + gap;
+        bool preferLeft = (widgetLeft + widgetRight) / 2 > (areaLeft + areaRight) / 2;
+        int x = preferLeft ? (left >= areaLeft ? left : right) : (right + flyoutW <= areaRight ? right : left);
+        return Math.Clamp(x, areaLeft, Math.Max(areaLeft, areaRight - flyoutW));
+    }
+
     public static float RowsHeight(List<AiRow> rows) => rows.Sum(r => r.Kind == AiRowKind.Separator ? SeparatorH : Engine.RowProc);
 
     /// <summary>One Codex rollout line, or null when it isn't a token_count event carrying rate limits. Codex writes the
