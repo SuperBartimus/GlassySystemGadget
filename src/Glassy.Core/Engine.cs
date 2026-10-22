@@ -14,6 +14,8 @@ public sealed class PanelRuntime
     public double ScaleMax = 100;
     public TimeLayout Layout;
     public float Top, Height, PlotTopOffset, PlotHeight;   // DIPs, set by Engine
+    public float PlotLeft, PlotRight;                 // 0 = the panel's full width (compact drive rows use a narrow column)
+    public bool CompactDrive;                         // one compact row of the Drives panel (the rows share one card)
     public bool LegendRow;                            // legend on its own row under the title
     public List<ProcRow> Procs = new();
     public VolumeRow Volume;                          // drive sections
@@ -198,7 +200,9 @@ public sealed class Engine : IDisposable
                 if (!runtimes.TryGetValue((pc.Kind, sub), out var rt)) runtimes[(pc.Kind, sub)] = rt = new PanelRuntime();
                 rt.Cfg = pc; rt.Sub = sub; rt.Title = title; rt.Volume = vol;
                 Configure(rt, plotCells);
-                rt.Top = y; y += rt.Height + (i < subs.Count - 1 ? SectionGap : PanelGap);
+                // Compact drive rows sit edge to edge inside one card, padded at its top and bottom.
+                if (rt.CompactDrive && i == 0) y += DriveRowLayout.Pad;
+                rt.Top = y; y += rt.Height + (i < subs.Count - 1 ? (rt.CompactDrive ? 0 : SectionGap) : (rt.CompactDrive ? DriveRowLayout.Pad : 0) + PanelGap);
                 Panels.Add(rt); live.Add((pc.Kind, sub));
                 if (pc.Kind == PanelKind.Network && sub != "") adapters.Add(sub);
             }
@@ -212,10 +216,25 @@ public sealed class Engine : IDisposable
         lastSlow = 0; lastProc = 0;   // refresh list panels immediately
     }
 
+    /// <summary>A graph's width in samples (one per DIP): the panel's inner width, or a compact drive row's narrow graph column.</summary>
+    public static int PlotCells(PanelConfig pc, GlobalConfig g)
+    {
+        if (pc.Kind != PanelKind.Drives || !pc.DriveCompact) return (int)(g.Width - 2 * Margin - 16);
+        var dl = DriveRowLayout.For(Margin + 10, (float)g.Width - Margin - 10);
+        return Math.Max(8, (int)(dl.GraphR - dl.GraphL));
+    }
+
     void Configure(PanelRuntime rt, int plotCells)
     {
         var pc = rt.Cfg; var kind = pc.Kind;
         rt.LegendRow = HasLegendRow(kind);
+        rt.CompactDrive = kind == PanelKind.Drives && pc.DriveCompact;
+        rt.PlotLeft = rt.PlotRight = 0;
+        if (rt.CompactDrive)
+        {
+            var dl = DriveRowLayout.For(Margin + 10, (float)Config.Global.Width - Margin - 10);
+            rt.PlotLeft = dl.GraphL; rt.PlotRight = dl.GraphR; plotCells = PlotCells(pc, Config.Global);
+        }
         switch (kind)
         {
             case PanelKind.Cpu: case PanelKind.Ram: case PanelKind.Gpu: case PanelKind.Battery: case PanelKind.Iis: case PanelKind.HyperV: case PanelKind.FileShare: rt.Source = SourceFor(kind); break;
@@ -253,7 +272,8 @@ public sealed class Engine : IDisposable
             rt.SeriesKeys = lineKeys;
         }
 
-        if (kind == PanelKind.Drives)
+        if (rt.CompactDrive) { rt.PlotTopOffset = DriveRowLayout.GraphTop; rt.PlotHeight = DriveRowLayout.GraphH; rt.Height = DriveRowLayout.RowH; }
+        else if (kind == PanelKind.Drives)
         {
             bool act = rt.Source != null;
             rt.PlotTopOffset = DriveHeader; rt.PlotHeight = pc.Height;

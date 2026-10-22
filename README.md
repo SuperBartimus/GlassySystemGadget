@@ -16,11 +16,13 @@ Panels (each its own graph group, reorderable, individually switchable):
 - GPU (NVIDIA via NVML): core load, VRAM, video encode/decode, power and clock
 - Network: download and upload in bits per second, either one combined graph of
   all physical adapters or one graph per adapter you tick
-- Drives: one compact section per mounted drive letter, each with its own
-  read/write activity graph and a space bar underneath. Sections appear and
+- Drives: one row per mounted drive letter: the letter, a used-space bar with
+  "used / total" written over it, a small read/write graph with both rates under
+  it, then the volume label when the widget is wide enough. Rows appear and
   disappear as USB drives and discs come and go; network drives get a bar only.
-  Tags mark Network, CD/DVD, Removable and Read-only volumes. Any drive can be
-  switched off.
+  Any drive can be switched off. Untick "Compact rows" for the older layout: a
+  section per drive with a full-size graph and tags for Network, CD/DVD,
+  Removable and Read-only volumes.
 - Top processes: by CPU or memory, grouped by image name, with a bar behind each
   row that grows and shifts colour with load (green, yellow, amber, orange, red)
 - Uptime
@@ -184,7 +186,7 @@ Updates page can also check on a schedule and ask, or install on its own.
 - One page per hardware type: height, live/history durations and split, average
   or peak history, fixed or automatic scale, per-line colour/width/glow/fill.
   Network adds combined-or-selected adapters; Drives adds the drive checklist and
-  show-activity / show-space-bar switches; Top processes adds rows, sort and the
+  show-activity / show-space-bar / compact-rows switches; Top processes adds rows, sort and the
   percentage at which the bar is full and red (default 25% of total CPU);
   Clipboard adds items kept, image size cap, capture sound (system or a .wav you
   pick), restore-last-item-on-startup, whether the search box starts open,
@@ -242,7 +244,7 @@ If you already have a status line, add the same write to it instead.
 dotnet test GlassySystemGadget\tests\Glassy.Tests -c Release
 ```
 
-173 tests: ring/bucket maths, config round trip (incl. the theme colours and
+176 tests: ring/bucket maths, config round trip (incl. the theme colours and
 per-panel background override), theme preset validity, corrupt-file recovery and
 migration (of the old disk panels, and to add the Clipboard, Battery,
 Weather, IIS, Hyper-V, File shares and AI usage panels to a config that predates them; a config from a newer

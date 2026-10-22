@@ -309,7 +309,7 @@ public sealed class SettingsForm : Form
 
     string TimeInfo(PanelConfig p)
     {
-        var t = new TimeLayout((int)(cfg.Global.Width - 2 * Engine.Margin - 16), p.SplitPercent, p.LiveSeconds, p.HistorySeconds, cfg.Global.TickMs);
+        var t = new TimeLayout(Engine.PlotCells(p, cfg.Global), p.SplitPercent, p.LiveSeconds, p.HistorySeconds, cfg.Global.TickMs);
         double tick = cfg.Global.TickMs / 1000.0;
         return $"Live side: {t.LiveCells} px, {t.TicksPerLive * tick:0.##} s per pixel = {Duration(t.LiveCells * t.TicksPerLive * tick)}.   " +
                $"History side: {t.HistCells} px, {Duration(t.TicksPerHist * tick)} per pixel = {Duration(t.HistCells * t.TicksPerHist * tick)}.";
@@ -347,6 +347,7 @@ public sealed class SettingsForm : Form
             {
                 Row(t, "", Chk("Show activity graph (read / write)", p.ShowActivity, v => p.ShowActivity = v));
                 Row(t, "", Chk("Show space bar", p.ShowSpaceBar, v => p.ShowSpaceBar = v));
+                Row(t, "", Chk("Compact rows (one line per drive; graph height is fixed)", p.DriveCompact, v => { p.DriveCompact = v; Refresh(); }));
             }
             if (kind == PanelKind.Iis)
             {

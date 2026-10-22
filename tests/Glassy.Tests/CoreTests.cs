@@ -361,7 +361,33 @@ public class DriveSectionTests
     static VolumeRow Vol(string letter, VolKind kind, bool ro = false, string label = "") =>
         new() { Letter = letter, Kind = kind, ReadOnly = ro, Label = label, Total = 1000, Free = 400 };
 
-    static AppConfig DrivesOnly() { var c = AppConfig.CreateDefault(); c.Panels = new List<PanelConfig> { AppConfig.DrivesPanel(true) }; return c; }
+    static AppConfig DrivesOnly(bool compact = false) { var c = AppConfig.CreateDefault(); c.Panels = new List<PanelConfig> { AppConfig.DrivesPanel(true) }; c.Panels[0].DriveCompact = compact; return c; }
+
+    [Fact]
+    public void Compact_rows_are_one_fixed_height_line_each_in_one_padded_card()
+    {
+        var vols = new FakeVolumes { Snapshot = new[] { Vol("C", VolKind.Fixed), Vol("N", VolKind.Network), Vol("S", VolKind.Fixed) } };
+        using var e = new Engine(DrivesOnly(compact: true), vols, new FakeNet());
+        Assert.All(e.Panels, p => { Assert.True(p.CompactDrive); Assert.Equal(DriveRowLayout.RowH, p.Height); });
+        Assert.Equal(Engine.Margin + DriveRowLayout.Pad, e.Panels[0].Top);
+        Assert.Equal(e.Panels[0].Top + DriveRowLayout.RowH, e.Panels[1].Top);          // rows touch: no gap between drives
+        Assert.Equal(e.Panels[2].Top + DriveRowLayout.RowH + DriveRowLayout.Pad + Engine.Margin, e.TotalHeight);
+        var dl = DriveRowLayout.For(Engine.Margin + 10, (float)e.Config.Global.Width - Engine.Margin - 10);
+        Assert.Equal(dl.GraphL, e.Panels[0].PlotLeft); Assert.Equal(dl.GraphR, e.Panels[0].PlotRight);
+        Assert.Equal((int)(dl.GraphR - dl.GraphL), e.Panels[0].Layout.HistCells + e.Panels[0].Layout.LiveCells);   // one sample per pixel of the narrow graph
+        Assert.Null(e.Panels[1].Source);
+    }
+
+    [Theory]
+    [InlineData(14, 286, true)]    // default width: bar, graph and a label column
+    [InlineData(14, 160, false)]   // narrow widget: label column dropped, bar and graph fill the row
+    public void Compact_row_columns_are_ordered_and_fit(float l, float r, bool label)
+    {
+        var d = DriveRowLayout.For(l, r);
+        Assert.True(l < d.BarL && d.BarL < d.BarR && d.BarR < d.GraphL && d.GraphL < d.GraphR && d.GraphR <= r);
+        Assert.Equal(label, r - d.LabelL >= DriveRowLayout.MinLabel);
+        if (!label) Assert.Equal(r, d.GraphR, 3);
+    }
 
     [Fact]
     public void One_section_per_drive_with_tags_and_no_activity_graph_for_network_drives()

@@ -18,6 +18,22 @@ public sealed class VolumeRow
     public string Key => $"{Letter}|{Kind}|{ReadOnly}|{Label}";
 }
 
+/// <summary>Columns of one compact Drives row, between the panel's inner edges l and r: the letter, the space bar, the
+/// activity graph (with its rates under it), then the volume label when at least MinLabel is left over.</summary>
+public readonly record struct DriveRowLayout(float BarL, float BarR, float GraphL, float GraphR, float LabelL)
+{
+    public const float RowH = 22, Pad = 3, LetterW = 22, Gap = 6, MinLabel = 36, GraphTop = 2, GraphH = 8;
+
+    public static DriveRowLayout For(float l, float r)
+    {
+        float x = l + LetterW, avail = r - x;
+        float bar = avail * 0.45f, graph = avail * 0.30f;
+        if (r - (x + bar + Gap + graph + Gap) < MinLabel) { bar = (avail - Gap) * 0.6f; graph = avail - Gap - bar; }   // too narrow: no label column
+        float gl = x + bar + Gap, gr = gl + graph;
+        return new(x, x + bar, gl, gr, Math.Min(r, gr + Gap));
+    }
+}
+
 public interface IVolumeProvider : IDisposable
 {
     /// <summary>Current drives, ordered by letter. The array is replaced (never mutated) when anything changes.</summary>

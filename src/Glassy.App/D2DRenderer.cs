@@ -173,7 +173,17 @@ public sealed class D2DRenderer : IDisposable
 
             // Pass 2: backgrounds, grid, fills, glow, crisp lines, text.
             dc.Target = target; dc.BeginDraw(); dc.Clear(new Color4(0, 0, 0, 0));
-            foreach (var p in e.Panels) { Background(p, W, op); if (p.IsSeries) GridAndFill(p, W, geos); }
+            for (int i = 0; i < e.Panels.Count; i++)
+            {
+                var p = e.Panels[i];
+                if (!p.CompactDrive) Background(p, W, op, p.Top, p.Top + p.Height);
+                else if (i == 0 || !e.Panels[i - 1].CompactDrive)   // first compact drive row draws the one card for all of them
+                {
+                    int j = i; while (j + 1 < e.Panels.Count && e.Panels[j + 1].CompactDrive) j++;
+                    Background(p, W, op, p.Top - DriveRowLayout.Pad, e.Panels[j].Top + e.Panels[j].Height + DriveRowLayout.Pad);
+                }
+                if (p.IsSeries) GridAndFill(p, W, geos);
+            }
             if (anyGlow) dc.DrawImage(blur.Output, null, null, InterpolationMode.Linear, CompositeMode.SourceOver);
             foreach (var x in geos.Where(x => x.Line != null))
             {
@@ -193,7 +203,7 @@ public sealed class D2DRenderer : IDisposable
         ((byte)(c.r + (255 - c.r) * t), (byte)(c.g + (255 - c.g) * t), (byte)(c.b + (255 - c.b) * t));
 
     static RawRectF PlotRect(PanelRuntime p, float W) =>
-        new(Engine.Margin + 8, p.Top + p.PlotTopOffset, W - Engine.Margin - 8, p.Top + p.PlotTopOffset + p.PlotHeight);
+        new(p.PlotRight > 0 ? p.PlotLeft : Engine.Margin + 8, p.Top + p.PlotTopOffset, p.PlotRight > 0 ? p.PlotRight : W - Engine.Margin - 8, p.Top + p.PlotTopOffset + p.PlotHeight);
 
     void BuildGeometry(PanelRuntime p, float W, List<LineGeo> outList)
     {
@@ -227,20 +237,20 @@ public sealed class D2DRenderer : IDisposable
     }
 
     // ------------------------------------------------------------ panel parts
-    void Background(PanelRuntime p, float W, float op)
+    void Background(PanelRuntime p, float W, float op, float top, float bottom)
     {
         // A panel with its own SectionBgTop/Bottom set overrides the app-wide theme background for just this
         // section; "" (the default) inherits it. Border and text stay app-wide only - Bart only asked for a
         // per-section override on background.
         var (tr, tg, tb) = p.Cfg.SectionBgTop != "" ? Hex(p.Cfg.SectionBgTop) : themeBgTop;
         var (br2, bg2, bb2) = p.Cfg.SectionBgBottom != "" ? Hex(p.Cfg.SectionBgBottom) : themeBgBottom;
-        var rr = new RoundedRectangle(new RawRectF(Engine.Margin, p.Top, W - Engine.Margin, p.Top + p.Height), 9, 9);
+        var rr = new RoundedRectangle(new RawRectF(Engine.Margin, top, W - Engine.Margin, bottom), 9, 9);
         using (var gs = dc.CreateGradientStopCollection(new[]
         {
             new GradientStop { Position = 0, Color = new Color4(tr / 255f, tg / 255f, tb / 255f, 0.94f * op) },
             new GradientStop { Position = 1, Color = new Color4(br2 / 255f, bg2 / 255f, bb2 / 255f, op) },
         }))
-        using (var bg = dc.CreateLinearGradientBrush(new LinearGradientBrushProperties { StartPoint = new Vector2(0, p.Top), EndPoint = new Vector2(0, p.Top + p.Height) }, gs))
+        using (var bg = dc.CreateLinearGradientBrush(new LinearGradientBrushProperties { StartPoint = new Vector2(0, top), EndPoint = new Vector2(0, bottom) }, gs))
             dc.FillRoundedRectangle(rr, bg);
         dc.DrawRoundedRectangle(rr, Br(borderCol, 0.55f * Math.Min(1f, op + 0.2f)), 1.1f);
     }
@@ -248,7 +258,8 @@ public sealed class D2DRenderer : IDisposable
     void GridAndFill(PanelRuntime p, float W, List<LineGeo> geos)
     {
         var plot = PlotRect(p, W); var grid = Br(220, 150, 255, 0.14f); float ph = plot.Bottom - plot.Top;
-        for (int i = 0; i <= 4; i++) { float y = plot.Top + ph * i / 4f; dc.DrawLine(new Vector2(plot.Left, y), new Vector2(plot.Right, y), grid, 1f); }
+        if (p.CompactDrive) dc.FillRectangle(plot, Br(255, 255, 255, 0.05f));   // too short for grid lines: a faint well instead
+        else for (int i = 0; i <= 4; i++) { float y = plot.Top + ph * i / 4f; dc.DrawLine(new Vector2(plot.Left, y), new Vector2(plot.Right, y), grid, 1f); }
         int cells = p.Layout.HistCells + p.Layout.LiveCells; float xd = plot.Left + (plot.Right - plot.Left) * p.Layout.HistCells / cells;
         dc.DrawLine(new Vector2(xd, plot.Top), new Vector2(xd, plot.Bottom), Br(255, 255, 255, 0.35f), 1f, dashStroke);
         foreach (var x in geos.Where(x => x.P == p && x.Area != null))
@@ -457,6 +468,7 @@ public sealed class D2DRenderer : IDisposable
 
     void DriveContent(PanelRuntime p, float W, float l, float r, float t, ID2D1Brush txt, ID2D1Brush dim)
     {
+        if (p.CompactDrive) { CompactDriveRow(p, l, r, t, txt, dim); return; }
         var v = p.Volume; float x = l;
         Text(p.Title, fTitle, x, t + 3, x + 40, t + 20, txt); x += Measure(p.Title, fTitle) + 6;
         if (v.Label != "")
@@ -489,6 +501,40 @@ public sealed class D2DRenderer : IDisposable
             if (fw > 1) dc.FillRoundedRectangle(new RoundedRectangle(new RawRectF(bl, bt, bl + fw, bt + 8), 4, 4), Br(barCol, v.ReadOnly ? 0.75f : 0.9f));
             Text($"{Fmt.Bytes(v.Free)} free of {Fmt.Bytes(v.Total)}", fSmallR, br + 6, by + 1, r, by + 15, dim);
         }
+    }
+
+    /// <summary>One compact Drives row: letter, a dark used-space bar with "used / total" in bright text over it, the small
+    /// activity graph with its read and write rates (in their line colours) under it, then the label if there is room.
+    /// A drive with no graph (network, CD) lets the label start where the graph would be.</summary>
+    void CompactDriveRow(PanelRuntime p, float l, float r, float t, ID2D1Brush txt, ID2D1Brush dim)
+    {
+        var v = p.Volume; var dl = DriveRowLayout.For(l, r);
+        Text(p.Title, fTitle, l, t + 3, dl.BarL, t + 20, txt);
+
+        float bt = t + 3, bb = t + DriveRowLayout.RowH - 3;
+        var rr = new RoundedRectangle(new RawRectF(dl.BarL, bt, dl.BarR, bb), 3, 3);
+        dc.FillRoundedRectangle(rr, Br(255, 255, 255, 0.07f));
+        float fw = (float)Math.Clamp(v.UsedFraction, 0, 1) * (dl.BarR - dl.BarL);
+        var c = v.ReadOnly ? ((byte)170, (byte)150, (byte)215) : Fmt.LoadColor(v.UsedFraction);
+        var dark = ((byte)(c.Item1 * 0.5f), (byte)(c.Item2 * 0.5f), (byte)(c.Item3 * 0.5f));
+        if (p.Cfg.ShowSpaceBar && fw > 1) dc.FillRoundedRectangle(new RoundedRectangle(new RawRectF(dl.BarL, bt, dl.BarL + fw, bb), 3, 3), Br(dark, 0.9f));
+        dc.DrawRoundedRectangle(rr, Br(c, 0.35f), 0.8f);
+        Text($"{Fmt.Bytes(v.Total - v.Free)} / {Fmt.Bytes(v.Total)}", fCenter, dl.BarL, bt + 2.5f, dl.BarR, bb, Br(255, 255, 255, 0.95f));
+
+        float labelL = dl.LabelL;
+        if (p.IsSeries)
+        {
+            float ty = t + DriveRowLayout.GraphTop + DriveRowLayout.GraphH;
+            var lines = p.Cfg.Lines;
+            for (int i = 0; i < 2 && i < lines.Count && i < p.Latest.Length; i++)
+            {
+                if (!lines[i].Visible || float.IsNaN(p.Latest[i])) continue;
+                Text(Fmt.Bytes(p.Latest[i]), i == 0 ? fSmall : fSmallR, dl.GraphL, ty, dl.GraphR, ty + 12, Br(Hex(lines[i].Color), 0.95f));
+            }
+        }
+        else labelL = dl.GraphL;
+        string label = v.Label != "" ? v.Label : v.Kind == VolKind.Network ? "network" : v.Kind == VolKind.Optical ? "CD/DVD" : "";
+        if (r - labelL >= DriveRowLayout.MinLabel) Text(label, fSmall, labelL, t + 5, r, t + 19, dim);
     }
 
     // ------------------------------------------------------------ Battery panel

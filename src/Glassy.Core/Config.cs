@@ -76,6 +76,7 @@ public sealed class PanelConfig
     public List<string> HiddenDrives { get; set; } = new();    // drive letters the user turned off
     public bool ShowActivity { get; set; } = true;
     public bool ShowSpaceBar { get; set; } = true;
+    public bool DriveCompact { get; set; } = true;              // one row per drive (letter, space bar, small graph, label) instead of a card each
     // Top processes
     public int Count { get; set; } = 5;
     public bool SortByMemory { get; set; }
