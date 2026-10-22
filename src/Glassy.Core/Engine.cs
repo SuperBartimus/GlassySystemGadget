@@ -86,7 +86,7 @@ public sealed class Engine : IDisposable
     public static string ClipboardDirFor(string configPath) => Path.Combine(Path.GetDirectoryName(configPath)!, "Clipboard");
     public static string DefaultClipboardDir => ClipboardDirFor(ConfigStore.DefaultPath);
 
-    public Engine(AppConfig cfg, IVolumeProvider volumes = null, INetProvider net = null, ClipboardStore clipboard = null, string configPath = null, IBatteryProvider battery = null, IWeatherProvider weather = null, IIisProvider iis = null, IHyperVProvider hyperV = null, IFileShareProvider shares = null, IAiUsageProvider ai = null)
+    public Engine(AppConfig cfg, IVolumeProvider volumes = null, INetProvider net = null, ClipboardStore clipboard = null, string configPath = null, IBatteryProvider battery = null, IWeatherProvider weather = null, IIisProvider iis = null, IHyperVProvider hyperV = null, IFileShareProvider shares = null, IAiUsageProvider ai = null, bool demoDriveGraphs = false)
     {
         this.volumes = volumes; ownsVolumes = volumes == null;
         this.net = net; ownsNet = net == null;
@@ -96,6 +96,7 @@ public sealed class Engine : IDisposable
         this.hyperV = hyperV; ownsHyperV = hyperV == null;
         this.shares = shares; ownsShares = shares == null;
         this.ai = ai; ownsAi = ai == null;
+        this.demoDriveGraphs = demoDriveGraphs;
         dataDir = Path.GetDirectoryName(configPath ?? ConfigStore.DefaultPath)!;
         this.clipboard = clipboard ?? new ClipboardStore(ClipboardDirFor(configPath ?? ConfigStore.DefaultPath));
         initialUptimeRecordSeconds = cfg.Global.UptimeRecordSeconds;   // captured once, before this session's own ticks can raise it, so "new record" means genuinely new
@@ -111,6 +112,8 @@ public sealed class Engine : IDisposable
     IFileShareProvider Shares => shares ??= new PdhFileShareProvider();
     IAiUsageProvider Ai => ai ??= new LocalAiUsageProvider(Path.Combine(dataDir, "ai-history.json"));
     DriveActivityHub Activity => activity ??= new DriveActivityHub();
+    readonly bool demoDriveGraphs;   // --demo shots: fake drive letters have no real counters, so treat every one as having a graph
+    bool HasDriveCounter(string letter) => demoDriveGraphs || Activity.Has(letter);
     /// <summary>Bypasses the poll interval on the next Tick - Settings' manual "Refresh now" button and a fresh
     /// device-location resolution both call this.</summary>
     public void RequestWeatherRefresh() => weatherForceRefresh = true;
@@ -162,7 +165,7 @@ public sealed class Engine : IDisposable
         var sb = new System.Text.StringBuilder();
         foreach (var pc in Config.Panels.Where(p => p.Enabled))
         {
-            if (pc.Kind == PanelKind.Drives) sb.Append("D:").AppendJoin(';', VisibleVolumes(pc).Select(v => v.Key + (Activity.Has(v.Letter) ? "+" : "-"))).Append('|');
+            if (pc.Kind == PanelKind.Drives) sb.Append("D:").AppendJoin(';', VisibleVolumes(pc).Select(v => v.Key + (HasDriveCounter(v.Letter) ? "+" : "-"))).Append('|');
             else if (pc.Kind == PanelKind.Network && pc.SeparateAdapters) sb.Append("N:").AppendJoin(';', SelectedAdapters(pc)).Append('|');
             else if (pc.Kind == PanelKind.Battery) sb.Append("B:").Append(BatteryPresent).Append('|');
             else if (pc.Kind == PanelKind.AiUsage && runtimes.TryGetValue((PanelKind.AiUsage, ""), out var art)) sb.Append("A:").AppendJoin(',', AiUsageFormat.Rows(pc, art.Ai).Select(r => r.Kind)).Append('|');   // a provider gaining or losing a window resizes the panel
@@ -242,7 +245,7 @@ public sealed class Engine : IDisposable
                 if (rt.Source is not NetView nv || nv.Adapter != (rt.Sub == "" ? null : rt.Sub)) rt.Source = new NetView(Net, rt.Sub == "" ? null : rt.Sub);
                 break;
             case PanelKind.Drives:
-                bool act = pc.ShowActivity && rt.Volume.HasActivity && Activity.Has(rt.Sub);   // no counter (e.g. CD drive) = no graph
+                bool act = pc.ShowActivity && rt.Volume.HasActivity && HasDriveCounter(rt.Sub);   // no counter (e.g. CD drive) = no graph
                 if (!act) rt.Source = null;
                 else if (rt.Source is not DriveView dv || dv.Letter != rt.Sub) rt.Source = new DriveView(Activity, rt.Sub);
                 break;
@@ -378,6 +381,8 @@ public sealed class Engine : IDisposable
                     if (rng.NextDouble() < 0.0006) v += top * 0.35;
                     p.Series[li].Push((float)Math.Clamp(v, 0, top));
                 }
+                if (li < p.Latest.Length && float.IsNaN(p.Latest[li])) p.Latest[li] = p.Series[li].Latest;   // fake sources have no live reading
+
             }
             p.ScaleMax = p.Cfg.Scale == ScaleMode.Fixed ? p.Cfg.FixedMax : AutoScale(p);
         }

@@ -183,7 +183,17 @@ static class Program
             },
             Hours = DemoAiHours(),
         } } : null;
-        using var engine = new Engine(cfg, configPath: cfgPath, battery: demoBattery, weather: demoWeather, iis: demoIis, hyperV: demoHyperV, shares: demoShares, ai: demoAi); using var r = new D2DRenderer(ForceWarp);
+        // Fake drives, so a shot never shows this machine's own drive labels.
+        const long Gib = 1L << 30;
+        var demoVolumes = demo ? new DemoVolumes { Snapshot = new[]
+        {
+            new VolumeRow { Letter = "C", Label = "System", Kind = VolKind.Fixed, Total = 1000 * Gib, Free = 412 * Gib },
+            new VolumeRow { Letter = "D", Label = "Data", Kind = VolKind.Fixed, Total = 4000 * Gib, Free = 1150 * Gib },
+            new VolumeRow { Letter = "E", Label = "Games", Kind = VolKind.Fixed, Total = 2000 * Gib, Free = 140 * Gib },
+            new VolumeRow { Letter = "M", Label = "Media", Kind = VolKind.Network, Total = 8000 * Gib, Free = 4400 * Gib },
+            new VolumeRow { Letter = "U", Label = "USB stick", Kind = VolKind.Removable, Total = 64 * Gib, Free = 51 * Gib },
+        } } : null;
+        using var engine = new Engine(cfg, demoVolumes, configPath: cfgPath, battery: demoBattery, weather: demoWeather, iis: demoIis, hyperV: demoHyperV, shares: demoShares, ai: demoAi, demoDriveGraphs: demo); using var r = new D2DRenderer(ForceWarp);
         for (int i = 0; i < 6; i++) { engine.Tick(); Thread.Sleep(cfg.Global.TickMs); }
         if (demo) { engine.DemoFill(); DemoFillClipboard(engine); r.ShowSettingsGear = true; }   // showcase the hover-only Settings gear in demo shots
         r.Resize(cfg.Global.Width, engine.TotalHeight, scale); r.Render(engine, cfg.Global);
@@ -215,4 +225,10 @@ static class Program
         }
         return 0;
     }
+}
+
+sealed class DemoVolumes : IVolumeProvider
+{
+    public VolumeRow[] Snapshot { get; set; } = Array.Empty<VolumeRow>();
+    public void Dispose() { }
 }
