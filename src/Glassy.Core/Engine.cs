@@ -61,6 +61,8 @@ public sealed class Engine : IDisposable
     /// <summary>Increments whenever the set or size of sections changes (config edit, drive or adapter added/removed).</summary>
     public int LayoutVersion { get; private set; }
     public long TotalPhysBytes { get; private set; }
+    /// <summary>Latest total CPU percent from the CPU panel, or NaN when it isn't shown (the tray icon falls back to a pulse).</summary>
+    public float CpuTotal => Panels.FirstOrDefault(p => p.Cfg.Kind == PanelKind.Cpu && p.Latest.Length > 0)?.Latest[0] ?? float.NaN;
 
     readonly Dictionary<PanelKind, IPanelSource> sources = new();
     readonly Dictionary<(PanelKind, string), PanelRuntime> runtimes = new();

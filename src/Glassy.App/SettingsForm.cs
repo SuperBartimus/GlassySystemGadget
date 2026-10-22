@@ -50,7 +50,8 @@ public sealed class SettingsForm : Form
     {
         shotMode = true; Opacity = 0; ShowInTaskbar = false; StartPosition = FormStartPosition.Manual; Location = new Point(-32000, -32000);
         Show(); Application.DoEvents();
-        nav.SelectedIndex = Math.Max(0, nav.Items.IndexOf(name));
+        int i = Math.Max(0, nav.Items.IndexOf(name));
+        nav.SelectedIndex = i; ShowPage(i);   // explicit: selecting the already-selected General fires no change event, leaving BuildAllPages' last page up
         Application.DoEvents();
         using var bmp = new Bitmap(Width, Height);
         DrawToBitmap(bmp, new Rectangle(0, 0, Width, Height));
@@ -145,9 +146,10 @@ public sealed class SettingsForm : Form
         var op = new TrackBar { Minimum = 20, Maximum = 100, TickFrequency = 10, Value = (int)Math.Clamp(g.Opacity * 100, 20, 100), Width = 220, AutoSize = false, Height = 30 };
         op.ValueChanged += (_, _) => { g.Opacity = op.Value / 100.0; changed(); };
         Row(t, "Panel opacity", op);
-        Row(t, "", Chk("Click-through (launch the app again to reopen Settings)", g.ClickThrough, v => g.ClickThrough = v));
+        Row(t, "", Chk("Click-through (reopen Settings from the tray icon)", g.ClickThrough, v => g.ClickThrough = v));
         Row(t, "", Chk("Lock position (no dragging)", g.LockPosition, v => g.LockPosition = v));
         Row(t, "", Chk("Start with Windows", g.StartWithWindows, v => g.StartWithWindows = v));
+        Row(t, "", Chk("Show tray icon (same menu as right-clicking the widget)", g.TrayIcon, v => g.TrayIcon = v));
         page.Controls.Add(t);
 
         var perf = Table(); perf.Dock = DockStyle.Top;

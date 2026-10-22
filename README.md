@@ -166,7 +166,9 @@ in the top-right corner (the widget deliberately never takes focus, so this
 is the discoverable way in without right-clicking). Launching the app a
 second time also opens Settings in the running widget. Right-click the widget
 for Settings, Check for updates, Lock position, Reset position, Restart
-and Exit. Check for updates (also "Check now" on the Updates page) asks GitHub
+and Exit. The same menu is on the tray icon (double-click it for Settings),
+which draws a small scrolling CPU line: if it stops moving, the widget has
+hung. Check for updates (also "Check now" on the Updates page) asks GitHub
 for the latest release; on a copy installed by `install.ps1` it offers to
 run the installer again, which closes, updates and restarts the widget. The
 Updates page can also check on a schedule and ask, or install on its own.
@@ -175,7 +177,7 @@ Updates page can also check on a schedule and ask, or install on its own.
 
 - General: window mode (Normal, TopMost, Bottom), dock to left/right screen edge
   (reserves screen space), monitor, width, opacity, click-through, lock position,
-  start with Windows, process priority, update interval, efficiency mode
+  start with Windows, tray icon, process priority, update interval, efficiency mode
   (EcoQoS), periodic memory release, panel order and visibility.
 - Theme: the app's chrome - background, border and text tint (not the graph
   line colours, which stay on each hardware page as before). Nine presets to
@@ -244,7 +246,7 @@ If you already have a status line, add the same write to it instead.
 dotnet test GlassySystemGadget\tests\Glassy.Tests -c Release
 ```
 
-176 tests: ring/bucket maths, config round trip (incl. the theme colours and
+180 tests: ring/bucket maths, config round trip (incl. the theme colours and
 per-panel background override), theme preset validity, corrupt-file recovery and
 migration (of the old disk panels, and to add the Clipboard, Battery,
 Weather, IIS, Hyper-V, File shares and AI usage panels to a config that predates them; a config from a newer

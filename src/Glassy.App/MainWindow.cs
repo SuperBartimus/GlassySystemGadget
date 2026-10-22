@@ -37,6 +37,7 @@ public sealed class MainWindow : Form
     SettingsForm settings;
     AiStatsForm aiStats;
     readonly Updater updater;
+    readonly TrayIcon tray;
     ClipboardWatcher clipWatcher;
     readonly TextBox clipSearch = new()
     {
@@ -63,6 +64,7 @@ public sealed class MainWindow : Form
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => Close());
         ContextMenuStrip = menu;
+        tray = new TrayIcon(menu, OpenSettings);
 
         timer.Tick += (_, _) =>
         {
@@ -73,6 +75,7 @@ public sealed class MainWindow : Form
                 AppLog.Write($"layout changed: {engine.Panels.Count} sections, {pxW}x{pxH}px");
             }
             RenderFrame();
+            if (tray.Visible) tray.Update(engine.CpuTotal);
         };
         saveTimer.Tick += (_, _) => { saveTimer.Stop(); Save(); };
         trimTimer.Tick += (_, _) => { if (cfg.Global.TrimMemory) TrimMemory(); };
@@ -122,6 +125,7 @@ public sealed class MainWindow : Form
         engine.Apply(cfg);
         timer.Interval = Math.Clamp(g.TickMs, 100, 5000);
         weatherAnimTimer.Enabled = cfg.Panels.Any(p => p.Kind == PanelKind.Weather && p.Enabled);
+        tray.Visible = g.TrayIcon;
         seenLayout = engine.LayoutVersion; SetSize();
         var ex = GetWindowLongPtr(Handle, GWL_EXSTYLE).ToInt64();
         ex = g.ClickThrough ? ex | WS_EX_TRANSPARENT : ex & ~(long)WS_EX_TRANSPARENT;
@@ -501,7 +505,7 @@ public sealed class MainWindow : Form
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { renderer?.Dispose(); engine.Dispose(); timer.Dispose(); saveTimer.Dispose(); trimTimer.Dispose(); clipRetryTimer.Dispose(); weatherAnimTimer.Dispose(); menu.Dispose(); clipWatcher?.Dispose(); updater.Dispose(); }
+        if (disposing) { renderer?.Dispose(); engine.Dispose(); timer.Dispose(); saveTimer.Dispose(); trimTimer.Dispose(); clipRetryTimer.Dispose(); weatherAnimTimer.Dispose(); menu.Dispose(); clipWatcher?.Dispose(); updater.Dispose(); tray.Dispose(); }
         if (dib != IntPtr.Zero) DeleteObject(dib);
         if (memDc != IntPtr.Zero) DeleteDC(memDc);
         if (screenDc != IntPtr.Zero) ReleaseDC(IntPtr.Zero, screenDc);

@@ -159,6 +159,7 @@ public sealed class GlobalConfig
     public bool EcoQos { get; set; } = true;
     public bool TrimMemory { get; set; } = true;
     public bool StartWithWindows { get; set; }
+    public bool TrayIcon { get; set; } = true;            // notification-area icon with the widget's menu
     public ThemeColors Theme { get; set; } = new();
     /// <summary>The longest uptime GSG has ever observed on this machine, in seconds - persisted here so it
     /// survives a restart (uptime itself always resets to 0 at boot). Updated live each time current uptime
