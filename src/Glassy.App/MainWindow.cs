@@ -141,7 +141,7 @@ public sealed class MainWindow : Form
     void SetSize()
     {
         float scale = DeviceDpi / 96f;
-        pxW = (int)Math.Ceiling(cfg.Global.Width * scale); pxH = (int)Math.Ceiling(engine.TotalHeight * scale);   // same rounding as D2DRenderer.Resize
+        pxW = (int)Math.Ceiling(engine.TotalWidth * scale); pxH = (int)Math.Ceiling(engine.TotalHeight * scale);   // same rounding as D2DRenderer.Resize
         EnsureDib(pxW, pxH);
     }
 
@@ -179,17 +179,22 @@ public sealed class MainWindow : Form
         if (g.Dock == DockEdge.None)
         {
             if (barRegistered) RemoveBar();
-            pos = new Point(g.X, g.Y); ClampToScreens();
+            pos = new Point(g.X - MainLeftPx, g.Y); ClampToScreens();   // g.X is the main column, so adding a left column doesn't shift it
             return;
         }
         if (!barRegistered) { var a = Abd(); SHAppBarMessage(ABM_NEW, ref a); barRegistered = true; }
         var d = Abd(); var b = ScreenFor(g.Monitor).Bounds; bool left = g.Dock == DockEdge.Left;
         d.uEdge = left ? ABE_LEFT : ABE_RIGHT; d.rc = new RECT { left = b.Left, top = b.Top, right = b.Right, bottom = b.Bottom };
         SHAppBarMessage(ABM_QUERYPOS, ref d);
-        if (left) d.rc.right = d.rc.left + pxW; else d.rc.left = d.rc.right - pxW;
+        // Extra columns sit on the side away from the edge (Engine.ColumnOf); they reserve screen space only when asked to,
+        // otherwise only the main column pushes other windows aside and the rest floats over them.
+        int reserve = g.DockExtraColumns ? pxW : (int)Math.Ceiling(g.Width * DeviceDpi / 96f);
+        if (left) d.rc.right = d.rc.left + reserve; else d.rc.left = d.rc.right - reserve;
         SHAppBarMessage(ABM_SETPOS, ref d);
-        pos = new Point(d.rc.left, d.rc.top);
+        pos = new Point(left ? d.rc.left : d.rc.right - pxW, d.rc.top);
     }
+
+    int MainLeftPx => (int)Math.Round(engine.MainLeft * DeviceDpi / 96f);
 
     APPBARDATA Abd() => new() { cbSize = (uint)Marshal.SizeOf<APPBARDATA>(), hWnd = Handle, uCallbackMessage = appBarMsg };
     void RemoveBar() { var a = Abd(); SHAppBarMessage(ABM_REMOVE, ref a); barRegistered = false; }
@@ -220,7 +225,7 @@ public sealed class MainWindow : Form
         if (locked || dib == IntPtr.Zero || !TryEnsureRenderer()) return;
         try
         {
-            renderer.Resize(cfg.Global.Width, engine.TotalHeight, DeviceDpi / 96f);
+            renderer.Resize(engine.TotalWidth, engine.TotalHeight, DeviceDpi / 96f);
             renderer.ClipScroll = clipScroll; renderer.ClipSearchVisible = clipSearchVisible; renderer.ClipSearchQuery = clipSearch.Text;
             renderer.ShowSettingsGear = hoveringWidget;
             renderer.Render(engine, cfg.Global);
@@ -266,6 +271,7 @@ public sealed class MainWindow : Form
     {
         float s = DeviceDpi / 96f; float dipX = physical.X / s, dipY = physical.Y / s;
         var p = engine.Panels.FirstOrDefault(x => x.Cfg.Kind == PanelKind.AiUsage); if (p == null) return null;
+        dipX -= p.Left;
         var (x, y, w, h) = AiUsageFormat.StatsButton(p.Top, cfg.Global.Width);
         return dipX >= x && dipX < x + w && dipY >= y && dipY < y + h ? p : null;
     }
@@ -283,7 +289,7 @@ public sealed class MainWindow : Form
     bool GearHit(Point physical)
     {
         float s = DeviceDpi / 96f; float dipX = physical.X / s, dipY = physical.Y / s;
-        float x = cfg.Global.Width - Engine.GearMargin - Engine.GearSize;
+        float x = engine.MainLeft + cfg.Global.Width - Engine.GearMargin - Engine.GearSize;
         return dipX >= x && dipX < x + Engine.GearSize
             && dipY >= Engine.GearMargin && dipY < Engine.GearMargin + Engine.GearSize;
     }
@@ -307,8 +313,9 @@ public sealed class MainWindow : Form
     {
         base.OnMouseWheel(e);
         var clipCfg = ClipConfig(); if (clipCfg == null) return;
-        float s = DeviceDpi / 96f; float dipY = e.Y / s;
-        var panel = engine.Panels.FirstOrDefault(p => p.Cfg.Kind == PanelKind.Clipboard && dipY >= p.Top && dipY < p.Top + p.Height);
+        float s = DeviceDpi / 96f; float dipX = e.X / s, dipY = e.Y / s;
+        var panel = engine.Panels.FirstOrDefault(p => p.Cfg.Kind == PanelKind.Clipboard && dipY >= p.Top && dipY < p.Top + p.Height
+            && dipX >= p.Left && dipX < p.Left + cfg.Global.Width);
         if (panel == null) return;
         var (items, heights) = ClipRows();
         if (items.Count == 0) return;
@@ -340,7 +347,8 @@ public sealed class MainWindow : Form
     {
         var clipCfg = ClipConfig(); if (clipCfg == null) return false;
         var panel = engine.Panels.FirstOrDefault(p => p.Cfg.Kind == PanelKind.Clipboard); if (panel == null) return false;
-        float s = DeviceDpi / 96f; float dipX = physical.X / s, dipY = physical.Y / s;
+        float s = DeviceDpi / 96f; float dipX = physical.X / s - panel.Left, dipY = physical.Y / s;
+        if (dipX < 0 || dipX >= cfg.Global.Width) return false;   // another column
         var (items, heights) = ClipRows();
         var (idx, hit) = ClipboardLayout.HitTest(panel.Top, panel.Height, cfg.Global.Width, clipSearchVisible, heights, clipScroll, dipX, dipY);
         switch (hit)
@@ -375,7 +383,7 @@ public sealed class MainWindow : Form
         base.OnMouseUp(e);
         if (!dragging) return;
         dragging = false; Capture = false; Snap();
-        cfg.Global.X = pos.X; cfg.Global.Y = pos.Y; Present(); Dirty();
+        cfg.Global.X = pos.X + MainLeftPx; cfg.Global.Y = pos.Y; Present(); Dirty();
     }
 
     void Snap()
@@ -445,7 +453,7 @@ public sealed class MainWindow : Form
         var panel = engine.Panels.FirstOrDefault(p => p.Cfg.Kind == PanelKind.Clipboard);
         if (panel == null || !clipSearchVisible) { clipSearch.Visible = false; return; }
         float s = DeviceDpi / 96f;
-        int x = (int)((Engine.Margin + 10) * s), y = (int)((panel.Top + Engine.ClipHeader + 2) * s);
+        int x = (int)((panel.Left + Engine.Margin + 10) * s), y = (int)((panel.Top + Engine.ClipHeader + 2) * s);
         int w = (int)((cfg.Global.Width - 2 * Engine.Margin - 20 - Engine.ClipIcon) * s), h = (int)((Engine.ClipHeader - 6) * s);
         clipSearch.SetBounds(x, y, Math.Max(20, w), Math.Max(16, h));
         clipSearch.Visible = true;

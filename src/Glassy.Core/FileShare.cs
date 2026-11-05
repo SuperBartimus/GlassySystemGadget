@@ -29,7 +29,11 @@ public interface IFileShareProvider : IDisposable
 
 public static class FileShareFormat
 {
-    /// <summary>The rows drawn under the throughput graph; Engine sizes the panel from the same list. Shares past
+    /// <summary>A share row: its text line (RowProc high), then its own throughput graph (SparkH) and a little padding.</summary>
+    public const float SparkH = 14, ShareRowH = Engine.RowProc + SparkH + 3;
+    public static float RowsHeight(IEnumerable<FileShareRow> rows) => rows.Sum(r => r.Kind == FileShareRowKind.Share ? ShareRowH : Engine.RowProc);
+
+    /// <summary>The rows drawn under the title and legend; Engine sizes the panel from the same list. Shares past
     /// FsMaxRows fold into the header ("Shares  8 of 12").</summary>
     public static List<FileShareRow> Rows(PanelConfig pc, FileShareStatus s)
     {
@@ -155,7 +159,8 @@ public sealed class FakeFileShareProvider : IFileShareProvider
     public void Dispose() { }
 }
 
-/// <summary>Graph lines: total read and write bytes/sec, then one throughput (read + write) line per share.</summary>
+/// <summary>Lines: total read and write bytes/sec (legend values only - there is no panel graph), then one throughput
+/// (read + write) line per share, each drawn as its own small graph on that share's row.</summary>
 public sealed class FileShareSource : PerItemSource
 {
     readonly Func<IFileShareProvider> provider;

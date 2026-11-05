@@ -37,6 +37,10 @@ internal static class Win32
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")] public static extern IntPtr SetWindowLongPtr(IntPtr h, int index, IntPtr value);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern uint RegisterWindowMessage(string s);
     [DllImport("user32.dll")] public static extern bool AllowSetForegroundWindow(int pid);
+    [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
+    [DllImport("kernel32.dll")] public static extern uint GetConsoleProcessList(uint[] list, uint count);
+    [DllImport("kernel32.dll")] public static extern bool FreeConsole();
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hwnd, int cmd);
     [DllImport("shell32.dll")] public static extern UIntPtr SHAppBarMessage(uint msg, ref APPBARDATA data);
     [DllImport("psapi.dll")] public static extern bool EmptyWorkingSet(IntPtr process);
     [DllImport("kernel32.dll")] public static extern bool SetProcessInformation(IntPtr process, int cls, ref PowerThrottling info, int size);

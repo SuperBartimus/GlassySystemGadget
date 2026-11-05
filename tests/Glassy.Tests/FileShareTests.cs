@@ -75,7 +75,8 @@ public class FileShareTests
         var p = e.Panels[0];
         Assert.Equal(new[] { "read", "write", "share:share1", "share:share2" }, p.Cfg.Lines.Select(l => l.Key));
         Assert.Equal(new[] { 1500f, 3000f }, p.Latest.Skip(2));                          // read + write per share
-        Assert.Equal(p.Height, Engine.Header - 2 + Engine.LegendRowH + p.Cfg.Height + 6 + 3 * Engine.RowProc + 4);
+        Assert.Equal(0, p.PlotHeight);                                                  // no panel graph: each share row has its own
+        Assert.Equal(p.Height, Engine.Header - 2 + Engine.LegendRowH + 6 + Engine.RowProc + 2 * FileShareFormat.ShareRowH + 4);
     }
 
     [Theory]

@@ -23,6 +23,11 @@ static class Program
         if (Arg(args, "--soak") is string soak) return Soak(cfgPath, int.Parse(soak));
         if (shot != null) return Shot(cfgPath, shot, args.Contains("--demo"), float.TryParse(Arg(args, "--scale"), out var sc) ? sc : 1f);
 
+        // dotnet.exe is a console program, so "dotnet Glassy.App.dll" gets a console. The launchers start it hidden, but
+        // where Windows Terminal is the default terminal that hint is lost and an empty window appears. Drop the console
+        // when it is ours alone; when a shell shares it (started by hand from a prompt), leave that window alone.
+        if (Win32.GetConsoleProcessList(new uint[2], 2) == 1) { Win32.ShowWindow(Win32.GetConsoleWindow(), 0); Win32.FreeConsole(); }
+
         using var mutex = new Mutex(true, "Local\\GlassySystemGadget.Instance", out bool first);
         using var openSettings = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\GlassySystemGadget.Settings");
         if (!first) { Win32.AllowSetForegroundWindow(-1); openSettings.Set(); return 0; }   // -1 = ASFW_ANY: a second launch hands its foreground right to the running widget, which opens Settings
@@ -56,7 +61,7 @@ static class Program
     {
         var cfg = ConfigStore.Load(cfgPath);
         using var engine = new Engine(cfg, configPath: cfgPath); using var r = new D2DRenderer(ForceWarp);
-        r.Resize(cfg.Global.Width, engine.TotalHeight, 1f);
+        r.Resize(engine.TotalWidth, engine.TotalHeight, 1f);
         IntPtr buf = Marshal.AllocHGlobal(r.PxW * r.PxH * 4);
         var me = System.Diagnostics.Process.GetCurrentProcess(); var sw = System.Diagnostics.Stopwatch.StartNew(); long next = 0, trimAt = 30000;
         Console.WriteLine("t_s  managed_MB  gen0 gen2  private_MB  ws_MB");
@@ -196,7 +201,7 @@ static class Program
         using var engine = new Engine(cfg, demoVolumes, configPath: cfgPath, battery: demoBattery, weather: demoWeather, iis: demoIis, hyperV: demoHyperV, shares: demoShares, ai: demoAi, demoDriveGraphs: demo); using var r = new D2DRenderer(ForceWarp);
         for (int i = 0; i < 6; i++) { engine.Tick(); Thread.Sleep(cfg.Global.TickMs); }
         if (demo) { engine.DemoFill(); DemoFillClipboard(engine); r.ShowSettingsGear = true; }   // showcase the hover-only Settings gear in demo shots
-        r.Resize(cfg.Global.Width, engine.TotalHeight, scale); r.Render(engine, cfg.Global);
+        r.Resize(engine.TotalWidth, engine.TotalHeight, scale); r.Render(engine, cfg.Global);
         IntPtr buf = Marshal.AllocHGlobal(r.PxW * r.PxH * 4);
         try
         {

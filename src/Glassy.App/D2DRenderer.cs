@@ -164,10 +164,12 @@ public sealed class D2DRenderer : IDisposable
                 dc.Target = glowSrc; dc.BeginDraw(); dc.Clear(new Color4(0, 0, 0, 0));
                 foreach (var x in geos.Where(x => x.Cfg.Glow && x.Line != null))
                 {
+                    At(x.P.Left);
                     dc.PushAxisAlignedClip(Grow(x.Plot, 6), AntialiasMode.Aliased);
                     dc.DrawGeometry(x.Line, Br(Hex(x.Cfg.Color), 0.95f), x.Cfg.Width * 2.6f, roundStroke);
                     dc.PopAxisAlignedClip();
                 }
+                At(0);
                 dc.EndDraw();
             }
 
@@ -176,6 +178,7 @@ public sealed class D2DRenderer : IDisposable
             for (int i = 0; i < e.Panels.Count; i++)
             {
                 var p = e.Panels[i];
+                At(p.Left);
                 if (!p.CompactDrive) Background(p, W, op, p.Top, p.Top + p.Height);
                 else if (i == 0 || !e.Panels[i - 1].CompactDrive)   // first compact drive row draws the one card for all of them
                 {
@@ -184,19 +187,26 @@ public sealed class D2DRenderer : IDisposable
                 }
                 if (p.IsSeries) GridAndFill(p, W, geos);
             }
+            At(0);
             if (anyGlow) dc.DrawImage(blur.Output, null, null, InterpolationMode.Linear, CompositeMode.SourceOver);
             foreach (var x in geos.Where(x => x.Line != null))
             {
+                At(x.P.Left);
                 dc.PushAxisAlignedClip(Grow(x.Plot, 1), AntialiasMode.Aliased);
                 dc.DrawGeometry(x.Line, Br(Lighten(Hex(x.Cfg.Color), x.Cfg.Glow ? 0.45f : 0f)), x.Cfg.Width, roundStroke);
                 dc.PopAxisAlignedClip();
             }
-            foreach (var p in e.Panels) Content(p, W, e);
+            foreach (var p in e.Panels) { At(p.Left); Content(p, W, e); }
+            At(e.MainLeft);
             if (ShowSettingsGear) DrawSettingsGear(W);
+            At(0);
             dc.EndDraw();
         }
         finally { foreach (var x in geos) { x.Line?.Dispose(); x.Area?.Dispose(); } }
     }
+
+    /// <summary>Panels draw in their own column's coordinates (x from 0 to Global.Width); this shifts them into place.</summary>
+    void At(float x) => dc.Transform = Matrix3x2.CreateTranslation(x, 0);
 
     static RawRectF Grow(RawRectF r, float d) => new(r.Left - d, r.Top - d, r.Right + d, r.Bottom + d);
     static (byte r, byte g, byte b) Lighten((byte r, byte g, byte b) c, float t) =>
@@ -207,6 +217,7 @@ public sealed class D2DRenderer : IDisposable
 
     void BuildGeometry(PanelRuntime p, float W, List<LineGeo> outList)
     {
+        if (p.PlotHeight <= 0) return;   // file shares: no panel graph, each row draws its own
         var plot = PlotRect(p, W); int cells = p.Layout.HistCells + p.Layout.LiveCells;
         float cw = (plot.Right - plot.Left) / cells, ph = plot.Bottom - plot.Top; double max = Math.Max(1e-9, p.ScaleMax);
         for (int li = 0; li < p.Cfg.Lines.Count && li < p.Series.Length; li++)
@@ -257,6 +268,7 @@ public sealed class D2DRenderer : IDisposable
 
     void GridAndFill(PanelRuntime p, float W, List<LineGeo> geos)
     {
+        if (p.PlotHeight <= 0) return;
         var plot = PlotRect(p, W); var grid = Br(220, 150, 255, 0.14f); float ph = plot.Bottom - plot.Top;
         if (p.CompactDrive) dc.FillRectangle(plot, Br(255, 255, 255, 0.05f));   // too short for grid lines: a faint well instead
         else for (int i = 0; i <= 4; i++) { float y = plot.Top + ph * i / 4f; dc.DrawLine(new Vector2(plot.Left, y), new Vector2(plot.Right, y), grid, 1f); }
@@ -368,7 +380,7 @@ public sealed class D2DRenderer : IDisposable
         Text(p.Readout ?? "", fSmallR, Math.Max(titleEnd, l + 70), t + 7, r, t + 22, dim);
         if (p.LegendRow) DrawLegend(LegendItems(p), l, t + 21, r);
         var plot = PlotRect(p, W);
-        Text(p.Source.Format((float)p.ScaleMax), fSmall, plot.Left + 2, plot.Top + 1, plot.Left + 90, plot.Top + 14, Br(TitleCol, 0.45f));
+        if (p.PlotHeight > 0)         Text(p.Source.Format((float)p.ScaleMax), fSmall, plot.Left + 2, plot.Top + 1, plot.Left + 90, plot.Top + 14, Br(TitleCol, 0.45f));
         if (p.Source is IisSource iis) IisRows(p, iis, l, r, plot.Bottom + 6, txt, dim);
         if (p.Source is HyperVSource hv) HyperVRows(p, hv, l, r, plot.Bottom + 6, txt, dim);
         if (p.Source is FileShareSource fs) FileShareRows(p, fs, l, r, plot.Bottom + 6, txt, dim);
@@ -406,9 +418,38 @@ public sealed class D2DRenderer : IDisposable
                     float fw = (float)Math.Clamp(used, 0, 1) * (r - bl);
                     if (fw > 1) dc.FillRoundedRectangle(new RoundedRectangle(new RawRectF(bl, bt, bl + fw, bt + 4), 2, 2), Br(Fmt.LoadColor(used), 0.9f));
                 }
+                Spark(p, src.ItemKey(s.Name), l, y + Engine.RowProc + 1, r, y + Engine.RowProc + 1 + FileShareFormat.SparkH, LineColour(p, src, s.Name, ((byte)124, (byte)255, (byte)107)));
             }
-            y += Engine.RowProc;
+            y += row.Kind == FileShareRowKind.Share ? FileShareFormat.ShareRowH : Engine.RowProc;
         }
+    }
+
+    /// <summary>One line's history as a small filled graph in its own well, on the panel's shared scale - so a busy share
+    /// stands out against quiet ones. Same time layout as a full graph (history left of the dashed divider, live right).</summary>
+    void Spark(PanelRuntime p, string key, float l, float t, float r, float b, (byte r, byte g, byte b) c)
+    {
+        var well = new RawRectF(l, t, r, b);
+        dc.FillRectangle(well, Br(255, 255, 255, 0.05f));
+        int li = p.Cfg.Lines.FindIndex(x => x.Key == key); if (li < 0 || li >= p.Series.Length) return;
+        int cells = p.Layout.HistCells + p.Layout.LiveCells; if (cells < 2) return;
+        float xd = l + (r - l) * p.Layout.HistCells / cells;
+        dc.DrawLine(new Vector2(xd, t), new Vector2(xd, b), Br(255, 255, 255, 0.25f), 1f, dashStroke);
+        float cw = (r - l) / cells, h = b - t; double max = Math.Max(1e-9, p.ScaleMax);
+        pts.Clear(); var s = p.Series[li];
+        for (int i = 0; i < cells; i++)
+        {
+            float v = s.Cell(i); if (float.IsNaN(v)) continue;
+            pts.Add(new Vector2(l + (i + 0.5f) * cw, b - (float)Math.Clamp(v / max, 0, 1) * h));
+        }
+        if (pts.Count < 2) return;
+        var arr = pts.ToArray();
+        using var area = factory.CreatePathGeometry();
+        using (var sink = area.Open()) { sink.BeginFigure(new Vector2(arr[0].X, b), FigureBegin.Filled); sink.AddLines(arr); sink.AddLine(new Vector2(arr[^1].X, b)); sink.EndFigure(FigureEnd.Closed); sink.Close(); }
+        using var line = factory.CreatePathGeometry();
+        using (var sink = line.Open()) { sink.BeginFigure(arr[0], FigureBegin.Hollow); sink.AddLines(arr.AsSpan(1).ToArray()); sink.EndFigure(FigureEnd.Open); sink.Close(); }
+        dc.PushAxisAlignedClip(well, AntialiasMode.Aliased);
+        dc.FillGeometry(area, Br(c, 0.22f)); dc.DrawGeometry(line, Br(c, 0.95f), 1.2f, roundStroke);
+        dc.PopAxisAlignedClip();
     }
 
     void HyperVRows(PanelRuntime p, HyperVSource src, float l, float r, float y, ID2D1Brush txt, ID2D1Brush dim)

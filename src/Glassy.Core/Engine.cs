@@ -15,6 +15,7 @@ public sealed class PanelRuntime
     public TimeLayout Layout;
     public float Top, Height, PlotTopOffset, PlotHeight;   // DIPs, set by Engine
     public float PlotLeft, PlotRight;                 // 0 = the panel's full width (compact drive rows use a narrow column)
+    public float Left;                                // DIP x of the column this section sits in (0 = leftmost column)
     public bool CompactDrive;                         // one compact row of the Drives panel (the rows share one card)
     public bool LegendRow;                            // legend on its own row under the title
     public List<ProcRow> Procs = new();
@@ -58,6 +59,10 @@ public sealed class Engine : IDisposable
     public AppConfig Config { get; private set; } = null!;
     public List<PanelRuntime> Panels { get; } = new();
     public float TotalHeight { get; private set; }
+    /// <summary>All columns side by side; each is Global.Width wide.</summary>
+    public float TotalWidth { get; private set; }
+    /// <summary>DIP x of the main column - the one that docks and holds the Settings gear.</summary>
+    public float MainLeft { get; private set; }
     /// <summary>Increments whenever the set or size of sections changes (config edit, drive or adapter added/removed).</summary>
     public int LayoutVersion { get; private set; }
     public long TotalPhysBytes { get; private set; }
@@ -185,7 +190,7 @@ public sealed class Engine : IDisposable
         if (Native.GlobalMemoryStatusEx(ref mem)) TotalPhysBytes = (long)mem.TotalPhys;
         int plotCells = (int)(Config.Global.Width - 2 * Margin - 16);
         var live = new HashSet<(PanelKind, string)>(); var adapters = new List<string>();
-        float y = Margin;
+        var colY = new Dictionary<int, float>();   // next free y per column
 
         var drivesCfg = Config.Panels.FirstOrDefault(p => p.Enabled && p.Kind == PanelKind.Drives);
         if (drivesCfg != null) Activity.Sync(drivesCfg.ShowActivity ? VisibleVolumes(drivesCfg).Where(v => v.HasActivity).Select(v => v.Letter).ToList() : new List<string>());
@@ -199,6 +204,8 @@ public sealed class Engine : IDisposable
             else if (pc.Kind == PanelKind.Network && pc.SeparateAdapters) subs.AddRange(SelectedAdapters(pc).Select(a => (a, a, (VolumeRow)null)));
             else subs.Add(("", "", null));
 
+            int col = ColumnOf(pc, Config.Global.Dock);
+            float y = colY.GetValueOrDefault(col, Margin);
             for (int i = 0; i < subs.Count; i++)
             {
                 var (sub, title, vol) = subs[i];
@@ -208,17 +215,34 @@ public sealed class Engine : IDisposable
                 // Compact drive rows sit edge to edge inside one card, padded at its top and bottom.
                 if (rt.CompactDrive && i == 0) y += DriveRowLayout.Pad;
                 rt.Top = y; y += rt.Height + (i < subs.Count - 1 ? (rt.CompactDrive ? 0 : SectionGap) : (rt.CompactDrive ? DriveRowLayout.Pad : 0) + PanelGap);
+                rt.Left = col;   // column number for now; turned into an x below once every column is known
                 Panels.Add(rt); live.Add((pc.Kind, sub));
                 if (pc.Kind == PanelKind.Network && sub != "") adapters.Add(sub);
             }
+            colY[col] = y;
         }
+        // Columns sit side by side in order (an unused Left 1 with a used Left 2 leaves no gap); the main one always exists.
+        colY.TryAdd(0, Margin);
+        var cols = colY.Keys.OrderBy(c => c).ToList();
+        foreach (var p in Panels) p.Left = cols.IndexOf((int)p.Left) * Config.Global.Width;
+        MainLeft = cols.IndexOf(0) * Config.Global.Width;
+        TotalWidth = cols.Count * Config.Global.Width;
+        float bottom = colY.Values.Max();
         foreach (var dead in runtimes.Keys.Where(k => !live.Contains(k)).ToList()) runtimes.Remove(dead);   // a removed USB stick or adapter releases its history
         if (net != null || adapters.Count > 0) Net.Track(adapters);
 
-        TotalHeight = Math.Max(20, y - PanelGap + Margin);
+        TotalHeight = Math.Max(20, bottom - PanelGap + Margin);
         layoutSig = Signature();
         LayoutVersion++;
         lastSlow = 0; lastProc = 0;   // refresh list panels immediately
+    }
+
+    /// <summary>The column a panel is drawn in. Docked, a column on the docked edge would sit off-screen, so it goes to
+    /// the other side at the same distance (docked right: Right 1 becomes Left 1).</summary>
+    public static int ColumnOf(PanelConfig pc, DockEdge dock)
+    {
+        int c = Math.Clamp(pc.Column, -2, 2);
+        return dock == DockEdge.Right ? -Math.Abs(c) : dock == DockEdge.Left ? Math.Abs(c) : c;
     }
 
     /// <summary>A graph's width in samples (one per DIP): the panel's inner width, or a compact drive row's narrow graph column.</summary>
@@ -283,6 +307,12 @@ public sealed class Engine : IDisposable
             bool act = rt.Source != null;
             rt.PlotTopOffset = DriveHeader; rt.PlotHeight = pc.Height;
             rt.Height = Math.Max(26, DriveHeader + (act ? pc.Height + 4 : 0) + (pc.ShowSpaceBar ? DriveBar : 0) + 4);
+        }
+        else if (rt.Source is FileShareSource fs)
+        {
+            // No panel graph: each share row carries its own (see FileShareFormat.ShareRowH).
+            rt.PlotTopOffset = Header - 2 + LegendRowH; rt.PlotHeight = 0;
+            rt.Height = rt.PlotTopOffset + 6 + FileShareFormat.RowsHeight(FileShareFormat.Rows(pc, fs.Status)) + 4;
         }
         else if (rt.Source is PerItemSource ps)
         {

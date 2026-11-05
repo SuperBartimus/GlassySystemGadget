@@ -73,9 +73,10 @@ Panels (each its own graph group, reorderable, individually switchable):
   Administrators; without it, running VMs are still listed from the
   performance counters and the panel says what's missing.
 - File shares: shown only on a machine that shares folders (the automatic
-  admin shares like C$ don't count). A graph of SMB read and write
-  bytes/sec plus one throughput line per share, then a row per share: open
-  files, current throughput and a small bar for how full its disk is. The
+  admin shares like C$ don't count). Total SMB read and write bytes/sec in
+  the legend, then a row per share: open files, current throughput, a small
+  bar for how full its disk is, and its own throughput graph underneath (all
+  shares on one scale, so the busy ones stand out). The
   header shows connected sessions and open files server-wide. Shares come
   from the registry and activity from the "SMB Server Shares" / "Server"
   performance counters - no WMI.
@@ -176,7 +177,7 @@ Updates page can also check on a schedule and ask, or install on its own.
 ## Settings
 
 - General: window mode (Normal, TopMost, Bottom), dock to left/right screen edge
-  (reserves screen space), monitor, width, opacity, click-through, lock position,
+  (reserves screen space), whether extra columns reserve it too, monitor, width, opacity, click-through, lock position,
   start with Windows, tray icon, process priority, update interval, efficiency mode
   (EcoQoS), periodic memory release, panel order and visibility.
 - Theme: the app's chrome - background, border and text tint (not the graph
@@ -185,6 +186,12 @@ Updates page can also check on a schedule and ask, or install on its own.
   scratch; picking a preset just fills in those four colours, so hand-tuning
   afterward never fights with it. Any panel can also override just its own
   background on its own settings page.
+- Every panel's page has a Column choice: Main, or up to two extra columns
+  on either side, for when everything won't fit one screen's height. While
+  docked only the side away from the edge is offered (a column set to the
+  docked side moves across). Docked, extra columns either push other windows
+  away like the main column (General: "Extra columns are part of the dock")
+  or float over them.
 - One page per hardware type: height, live/history durations and split, average
   or peak history, fixed or automatic scale, per-line colour/width/glow/fill.
   Network adds combined-or-selected adapters; Drives adds the drive checklist and
@@ -201,7 +208,7 @@ Updates page can also check on a schedule and ask, or install on its own.
   list's header, e.g. "Sites  8 of 12"); Hyper-V adds graph height, show
   off/saved/paused VMs, and a VM row cap. Per-site and per-VM lines can be
   recoloured or switched off individually like any other graph line; File
-  shares adds graph height and a share row cap; AI usage adds show/hide and
+  shares adds a share row cap; AI usage adds show/hide and
   a colour per provider, heatmap on/off, days and square height.
 - Updates: current version, Check now, and what to do when a new version is
   out - ask (Install now / Later / Skip this version), install automatically
@@ -246,7 +253,7 @@ If you already have a status line, add the same write to it instead.
 dotnet test GlassySystemGadget\tests\Glassy.Tests -c Release
 ```
 
-180 tests: ring/bucket maths, config round trip (incl. the theme colours and
+184 tests: ring/bucket maths, config round trip (incl. the theme colours and
 per-panel background override), theme preset validity, corrupt-file recovery and
 migration (of the old disk panels, and to add the Clipboard, Battery,
 Weather, IIS, Hyper-V, File shares and AI usage panels to a config that predates them; a config from a newer

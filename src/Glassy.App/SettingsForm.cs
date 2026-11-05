@@ -138,6 +138,7 @@ public sealed class SettingsForm : Form
         var t = Table();
         Row(t, "Window mode", Combo(g.Mode, v => g.Mode = v));
         Row(t, "Dock to screen edge", Combo(g.Dock, v => g.Dock = v));
+        Row(t, "", Chk("Extra columns are part of the dock (push windows away too)", g.DockExtraColumns, v => g.DockExtraColumns = v));
         var mon = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 170, FlatStyle = FlatStyle.Flat, BackColor = Bg2, ForeColor = Fg };
         var scr = Screen.AllScreens; for (int i = 0; i < scr.Length; i++) mon.Items.Add($"Monitor {i + 1}{(scr[i].Primary ? " (primary)" : "")}");
         mon.SelectedIndex = Math.Clamp(g.Monitor, 0, scr.Length - 1); mon.SelectedIndexChanged += (_, _) => { g.Monitor = mon.SelectedIndex; changed(); };
@@ -317,6 +318,20 @@ public sealed class SettingsForm : Form
                $"History side: {t.HistCells} px, {Duration(t.TicksPerHist * tick)} per pixel = {Duration(t.HistCells * t.TicksPerHist * tick)}.";
     }
 
+    /// <summary>Main or an extra column. Docked, only the side away from the edge is offered (Engine.ColumnOf moves a
+    /// column set before docking the same way).</summary>
+    ComboBox ColumnCombo(PanelConfig p)
+    {
+        var dock = cfg.Global.Dock;
+        var cols = new[] { -2, -1, 0, 1, 2 }.Where(c => dock == DockEdge.None || c == 0 || (dock == DockEdge.Right) == (c < 0)).ToList();
+        string Name(int c) => c == 0 ? "Main" : (c < 0 ? "Left " : "Right ") + Math.Abs(c);
+        var box = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 170, FlatStyle = FlatStyle.Flat, BackColor = Bg2, ForeColor = Fg };
+        foreach (var c in cols) box.Items.Add(Name(c));
+        box.SelectedIndex = Math.Max(0, cols.IndexOf(Engine.ColumnOf(p, dock)));
+        box.SelectedIndexChanged += (_, _) => { p.Column = cols[box.SelectedIndex]; changed(); };
+        return box;
+    }
+
     Control KindPage(PanelKind kind)
     {
         var p = cfg.Panels.FirstOrDefault(x => x.Kind == kind);
@@ -328,6 +343,7 @@ public sealed class SettingsForm : Form
             Row(t, "", Note("Shown automatically when Windows reports a battery; there is no manual on/off for it."));
         else
             Row(t, "", Chk("Show this panel", p.Enabled, v => p.Enabled = v));
+        Row(t, "Column", ColumnCombo(p));
         bool bgOverride = p.SectionBgTop != "";
         var bgChk = Chk("Override background for this panel", bgOverride, v =>
         {
@@ -344,7 +360,7 @@ public sealed class SettingsForm : Form
         if (series)
         {
             var info = Note(TimeInfo(p)); void Refresh() => info.Text = TimeInfo(p);
-            Row(t, kind == PanelKind.Drives ? "Activity graph height (px)" : kind == PanelKind.Iis || kind == PanelKind.HyperV || kind == PanelKind.FileShare ? "Graph height (px)" : "Height (px)", Num(kind == PanelKind.Drives || kind == PanelKind.Iis || kind == PanelKind.HyperV || kind == PanelKind.FileShare ? 20 : 50, 500, p.Height, 0, 5, v => p.Height = (int)v));
+            if (kind != PanelKind.FileShare) Row(t, kind == PanelKind.Drives ? "Activity graph height (px)" : kind == PanelKind.Iis || kind == PanelKind.HyperV || kind == PanelKind.FileShare ? "Graph height (px)" : "Height (px)", Num(kind == PanelKind.Drives || kind == PanelKind.Iis || kind == PanelKind.HyperV || kind == PanelKind.FileShare ? 20 : 50, 500, p.Height, 0, 5, v => p.Height = (int)v));
             if (kind == PanelKind.Drives)
             {
                 Row(t, "", Chk("Show activity graph (read / write)", p.ShowActivity, v => p.ShowActivity = v));
@@ -378,8 +394,9 @@ public sealed class SettingsForm : Form
                 Row(t, "Max share rows", Num(1, 50, p.FsMaxRows, 0, 1, v => p.FsMaxRows = (int)v));
                 t.Controls.Add(new Label());
                 t.Controls.Add(Note("Appears only on a machine that shares folders (the automatic admin shares like C$ " +
-                    "don't count). Read and write are SMB traffic across all shares; each share gets its own throughput line, " +
-                    "coloured like its dot. Rows show open files, current throughput and how full the share's disk is. " +
+                    "don't count). Read and write are SMB traffic across all shares; each share's row has its own small " +
+                    "throughput graph, coloured like its dot, on one shared scale so the busy shares stand out. Rows show open " +
+                    "files, current throughput and how full the share's disk is. " +
                     "The header shows connected sessions and open files server-wide."));
             }
             Row(t, "Live side shows (seconds)", Num(2, 7200, (decimal)p.LiveSeconds, 0, 5, v => { p.LiveSeconds = (double)v; Refresh(); }));

@@ -59,6 +59,9 @@ public sealed class PanelConfig
 {
     public PanelKind Kind { get; set; }
     public bool Enabled { get; set; } = true;
+    /// <summary>Which column the panel sits in: 0 = the main column, -1 / -2 = columns to its left, 1 / 2 = to its right.
+    /// While docked, a column on the docked side is drawn on the other side instead (see Engine.ColumnOf).</summary>
+    public int Column { get; set; }
     public int Height { get; set; } = 90;
     /// <summary>Time shown by the right-hand (live) part of the graph.</summary>
     public double LiveSeconds { get; set; } = 30;
@@ -146,6 +149,8 @@ public sealed class GlobalConfig
 {
     public WindowMode Mode { get; set; } = WindowMode.Normal;   // visible on first launch; Bottom is one Settings choice away
     public DockEdge Dock { get; set; } = DockEdge.None;
+    /// <summary>While docked: whether extra columns also reserve screen space (push other windows away) or float over them.</summary>
+    public bool DockExtraColumns { get; set; }
     public int Monitor { get; set; }
     public int X { get; set; } = 40;
     public int Y { get; set; } = 40;
