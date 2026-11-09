@@ -253,7 +253,7 @@ If you already have a status line, add the same write to it instead.
 dotnet test GlassySystemGadget\tests\Glassy.Tests -c Release
 ```
 
-184 tests: ring/bucket maths, config round trip (incl. the theme colours and
+185 tests: ring/bucket maths, config round trip (incl. the theme colours and
 per-panel background override), theme preset validity, corrupt-file recovery and
 migration (of the old disk panels, and to add the Clipboard, Battery,
 Weather, IIS, Hyper-V, File shares and AI usage panels to a config that predates them; a config from a newer

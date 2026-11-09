@@ -83,6 +83,13 @@ function New-HiddenStartupShortcut {
 
     $startupDir = [Environment]::GetFolderPath('Startup')
     $shortcutPath = Join-Path $startupDir 'Glassy System Gadget.lnk'
+    # The in-app "Start with Windows" setting uses this Run value instead. Both at once start the gadget twice at logon,
+    # and the second start makes the first open Settings - so leave autostart to the Run value when it exists.
+    $runValue = Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'GlassySystemGadget' -ErrorAction SilentlyContinue
+    if ($runValue) {
+        if (Test-Path $shortcutPath) { Remove-Item $shortcutPath -Force }
+        return 'the "Start with Windows" setting (HKCU Run)'
+    }
     $shell = New-Object -ComObject WScript.Shell
     $shortcut = $shell.CreateShortcut($shortcutPath)
     $shortcut.TargetPath = 'wscript.exe'

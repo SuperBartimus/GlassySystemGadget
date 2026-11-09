@@ -326,16 +326,39 @@ public class LabelAndStartupTests
     public void Autostart_registry_value_is_written_and_removed()
     {
         const string name = "GlassySystemGadget.UnitTest";
-        var launcher = Path.Combine(Path.GetTempPath(), "glassy-test-" + Guid.NewGuid().ToString("N"), "launch.vbs");
+        var dir = Path.Combine(Path.GetTempPath(), "glassy-test-" + Guid.NewGuid().ToString("N"));
+        var launcher = Path.Combine(dir, "launch.vbs"); var lnk = Path.Combine(dir, "fake.lnk");   // never the real Startup shortcut
         try
         {
-            Assert.False(Startup.IsEnabled(name));
-            Startup.Set(true, @"D:\Glassy.App.dll", name, launcher);
-            Assert.True(Startup.IsEnabled(name)); Assert.True(File.Exists(launcher));
-            Startup.Set(false, @"D:\Glassy.App.dll", name, launcher);
-            Assert.False(Startup.IsEnabled(name));
+            Assert.False(Startup.IsEnabled(name, lnk));
+            Startup.Set(true, @"D:\Glassy.App.dll", name, launcher, lnk);
+            Assert.True(Startup.IsEnabled(name, lnk)); Assert.True(File.Exists(launcher));
+            Startup.Set(false, @"D:\Glassy.App.dll", name, launcher, lnk);
+            Assert.False(Startup.IsEnabled(name, lnk));
         }
-        finally { Startup.Set(false, "", name, launcher); }   // never leave a test value in the user's Run key
+        finally { Startup.Set(false, "", name, launcher, lnk); }   // never leave a test value in the user's Run key
+    }
+
+    [Fact]
+    public void Installer_shortcut_and_run_value_never_both_start_the_app()
+    {
+        const string name = "GlassySystemGadget.UnitTest2";
+        var dir = Path.Combine(Path.GetTempPath(), "glassy-test-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(dir);
+        var launcher = Path.Combine(dir, "launch.vbs"); var lnk = Path.Combine(dir, "fake.lnk");
+        try
+        {
+            File.WriteAllText(lnk, "x");                                  // installer-only: shortcut counts as enabled and is kept
+            Assert.True(Startup.IsEnabled(name, lnk));
+            Startup.RemoveDuplicate(name, lnk); Assert.True(File.Exists(lnk));
+            Startup.Set(true, @"D:\Glassy.App.dll", name, launcher, lnk); // turning the setting on replaces it
+            Assert.False(File.Exists(lnk));
+            File.WriteAllText(lnk, "x");                                  // installer re-adds it while the Run value exists
+            Startup.RemoveDuplicate(name, lnk); Assert.False(File.Exists(lnk));
+            File.WriteAllText(lnk, "x");                                  // turning it off removes both
+            Startup.Set(false, "", name, launcher, lnk);
+            Assert.False(Startup.IsEnabled(name, lnk));
+        }
+        finally { Startup.Set(false, "", name, launcher, lnk); }
     }
 }
 

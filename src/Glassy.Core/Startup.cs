@@ -2,12 +2,17 @@ using Microsoft.Win32;
 
 namespace Glassy.Core;
 
-/// <summary>"Start with Windows" via HKCU Run. Launches through wscript so no console window appears and no new .exe is needed (Defender ASR blocks fresh .exe files here).</summary>
+/// <summary>"Start with Windows" via HKCU Run. Launches through wscript so no console window appears and no new .exe is needed (Defender ASR blocks fresh .exe files here).
+/// install.ps1 instead drops a Startup-folder shortcut. Both at once start the app twice at logon, and the second start
+/// signals the first to open Settings - so the Run key wins and the shortcut is removed whenever both exist.</summary>
 public static class Startup
 {
     const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     public const string DefaultValueName = "GlassySystemGadget";
     static readonly char[] BadChars = { '"', '\r', '\n' };
+
+    /// <summary>The shortcut install.ps1 creates (keep the name in step with New-HiddenStartupShortcut).</summary>
+    public static string DefaultShortcut => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Startup), "Glassy System Gadget.lnk");
 
     /// <summary>VBScript that starts the app hidden. A path containing a quote would break out of the VBScript string, so it is refused.</summary>
     public static string BuildLauncher(string dotnetExe, string appDll)
@@ -24,13 +29,26 @@ public static class Startup
             : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet", "dotnet.exe");
     }
 
-    public static bool IsEnabled(string valueName = DefaultValueName)
+    static bool HasRunValue(string valueName)
     {
         using var k = Registry.CurrentUser.OpenSubKey(RunKey); return k?.GetValue(valueName) != null;
     }
 
-    public static void Set(bool enable, string appDll, string valueName = DefaultValueName, string launcherPath = null)
+    /// <summary>True when either the Run value or the installer's shortcut will start the app at logon.</summary>
+    public static bool IsEnabled(string valueName = DefaultValueName, string shortcutPath = null)
+        => HasRunValue(valueName) || File.Exists(shortcutPath ?? DefaultShortcut);
+
+    /// <summary>Deletes the installer shortcut when the Run value also exists, so logon starts the app once.</summary>
+    public static void RemoveDuplicate(string valueName = DefaultValueName, string shortcutPath = null)
     {
+        shortcutPath ??= DefaultShortcut;
+        if (HasRunValue(valueName) && File.Exists(shortcutPath)) File.Delete(shortcutPath);
+    }
+
+    public static void Set(bool enable, string appDll, string valueName = DefaultValueName, string launcherPath = null, string shortcutPath = null)
+    {
+        shortcutPath ??= DefaultShortcut;
+        if (File.Exists(shortcutPath)) File.Delete(shortcutPath);   // on: the Run value replaces it; off: it must go too
         using var k = Registry.CurrentUser.CreateSubKey(RunKey);
         if (!enable) { k.DeleteValue(valueName, false); return; }
         launcherPath ??= Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GlassySystemGadget", "launch.vbs");

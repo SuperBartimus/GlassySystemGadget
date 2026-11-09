@@ -53,7 +53,8 @@ public sealed class MainWindow : Form
         FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; StartPosition = FormStartPosition.Manual;
         engine = new Engine(cfg, configPath: cfgPath);
         updater = new Updater(cfg, Dirty);
-        lastStartup = Startup.IsEnabled();
+        try { Startup.RemoveDuplicate(); } catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { }
+        lastStartup = cfg.Global.StartWithWindows = Startup.IsEnabled();   // what Windows will actually do, not a stale config flag
 
         menu.Items.Add("Settings...", null, (_, _) => OpenSettings());
         menu.Items.Add("Check for updates...", null, (_, _) => _ = updater.CheckNow(null));
